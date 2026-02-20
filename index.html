@@ -78,11 +78,11 @@
         
         <div id="page-home" class="page active">
             <div class="menu-grid">
-                <div class="menu-card" onclick="navTo('page-uart1', 'UART 1 综合控制台 (Vofa+ 模式)')" style="border-color: #ff9800;">
-                    <h3 style="color: #ff9800;">📈 UART 1 / 示波器</h3><p>串口配置 / 波形渲染 / Hex视图</p>
+                <div class="menu-card" onclick="navTo('page-uart1', 'UART 1 综合控制台')" style="border-color: #ff9800;">
+                    <h3 style="color: #ff9800;">📟 UART 1</h3><p>主控通信 / 波形渲染</p>
                 </div>
-                <div class="menu-card" onclick="navTo('page-uart2', 'UART 2 调试终端')">
-                    <h3>📟 UART 2</h3><p>辅助外设监控串口</p>
+                <div class="menu-card" onclick="navTo('page-uart2', 'UART 2 综合控制台')" style="border-color: #ff9800;">
+                    <h3 style="color: #ff9800;">📟 UART 2</h3><p>辅助外设 / 波形渲染</p>
                 </div>
                 <div class="menu-card" onclick="navTo('page-can', 'CAN 总线分析仪')">
                     <h3>🚌 CAN Bus</h3><p>报文收发 / 标准/扩展帧</p>
@@ -101,7 +101,7 @@
                 
                 <div class="vofa-sidebar">
                     <div class="panel" style="flex: none;">
-                        <h3 class="section-title">⚙️ 串口配置</h3>
+                        <h3 class="section-title">⚙️ 串口 1 配置</h3>
                         <div class="control-row" style="margin-bottom: 10px;">
                             <span style="font-size: 13px; width: 60px;">波特率</span>
                             <select id="u1-baud">
@@ -116,53 +116,88 @@
                     <div class="panel" style="flex: none;">
                         <h3 class="section-title">📥 接收设置</h3>
                         <div class="toggle-group" style="margin-bottom: 10px;">
-                            <button id="rx-ascii" class="toggle-btn active" onclick="setRxMode('ascii')">字符 (ASCII)</button>
-                            <button id="rx-hex" class="toggle-btn" onclick="setRxMode('hex')">十六进制 (HEX)</button>
+                            <button id="rx-ascii-1" class="toggle-btn active" onclick="setRxMode(1, 'ascii')">字符 (ASCII)</button>
+                            <button id="rx-hex-1" class="toggle-btn" onclick="setRxMode(1, 'hex')">十六进制 (HEX)</button>
                         </div>
                         <button class="danger" onclick="document.getElementById('u1-rx').value=''" style="width: 100%;">清空接收区</button>
                     </div>
 
                     <div class="panel" style="flex: 1; display: flex; flex-direction: column;">
                         <h3 class="section-title">📤 发送区</h3>
-                        <div class="toggle-group" style="margin-bottom: 10px;">
-                            <button class="toggle-btn active">字符发送</button>
-                            <button class="toggle-btn">HEX 发送</button>
-                        </div>
                         <textarea id="u1-tx" placeholder="输入要发送的数据..." style="flex: 1; margin-bottom: 10px; color: #fff;"></textarea>
                         <button onclick="sendCMD('TX_U1', document.getElementById('u1-tx').value)" style="width: 100%; background: #28a745;">一键发送</button>
                     </div>
                 </div>
 
                 <div class="vofa-main">
-                    
                     <div class="panel vofa-scope">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                            <h3 class="section-title" style="margin: 0; border: none;">📈 实时数据波形</h3>
+                            <h3 class="section-title" style="margin: 0; border: none;">📈 UART 1 实时波形</h3>
                             <div style="font-size: 12px; color: #888;">
-                                采样率: <span id="fps-counter" style="color:#00e676; font-weight: bold;">0</span> pts/s 
-                                <button class="danger" style="padding: 2px 8px; margin-left: 10px; font-size: 11px;" onclick="clearChart()">清空波形</button>
+                                采样率: <span id="fps-counter-1" style="color:#00e676; font-weight: bold;">0</span> pts/s 
+                                <button class="danger" style="padding: 2px 8px; margin-left: 10px; font-size: 11px;" onclick="clearChart(1)">清空波形</button>
                             </div>
                         </div>
-                        <div id="chart-container" style="flex: 1; background: #000; border-radius: 4px; border: 1px solid #444; width: 100%; overflow: hidden;"></div>
+                        <div id="chart-container-1" style="flex: 1; background: #000; border-radius: 4px; border: 1px solid #444; width: 100%; overflow: hidden;"></div>
                     </div>
 
                     <div class="panel vofa-rx">
                         <h3 class="section-title">📄 详细数据日志</h3>
-                        <textarea id="u1-rx" readonly placeholder="等待多线程接收数据..."></textarea>
+                        <textarea id="u1-rx" readonly placeholder="等待接收 UART 1 数据..."></textarea>
                     </div>
-                    
                 </div>
             </div>
         </div>
 
         <div id="page-uart2" class="page">
-            <div class="panel">
-                <h3 class="section-title">UART 2 监控区</h3>
-                <textarea id="u2-rx" readonly placeholder="等待接收 UART2 数据..."></textarea>
-                <div class="control-group" style="margin-top: 15px; flex-direction: row;">
-                    <input type="text" id="u2-tx" placeholder="输入要发送的内容..." style="flex: 1;">
-                    <button onclick="sendCMD('TX_U2', document.getElementById('u2-tx').value)">发送</button>
-                    <button class="danger" onclick="document.getElementById('u2-rx').value=''">清空</button>
+            <div class="vofa-layout">
+                
+                <div class="vofa-sidebar">
+                    <div class="panel" style="flex: none;">
+                        <h3 class="section-title">⚙️ 串口 2 配置</h3>
+                        <div class="control-row" style="margin-bottom: 10px;">
+                            <span style="font-size: 13px; width: 60px;">波特率</span>
+                            <select id="u2-baud">
+                                <option value="9600">9600</option>
+                                <option value="115200" selected>115200</option>
+                                <option value="2000000">2000000</option>
+                            </select>
+                        </div>
+                        <button onclick="sendCMD('CFG_U2', document.getElementById('u2-baud').value)" style="width: 100%;">应用配置</button>
+                    </div>
+
+                    <div class="panel" style="flex: none;">
+                        <h3 class="section-title">📥 接收设置</h3>
+                        <div class="toggle-group" style="margin-bottom: 10px;">
+                            <button id="rx-ascii-2" class="toggle-btn active" onclick="setRxMode(2, 'ascii')">字符 (ASCII)</button>
+                            <button id="rx-hex-2" class="toggle-btn" onclick="setRxMode(2, 'hex')">十六进制 (HEX)</button>
+                        </div>
+                        <button class="danger" onclick="document.getElementById('u2-rx').value=''" style="width: 100%;">清空接收区</button>
+                    </div>
+
+                    <div class="panel" style="flex: 1; display: flex; flex-direction: column;">
+                        <h3 class="section-title">📤 发送区</h3>
+                        <textarea id="u2-tx" placeholder="输入要发送的数据..." style="flex: 1; margin-bottom: 10px; color: #fff;"></textarea>
+                        <button onclick="sendCMD('TX_U2', document.getElementById('u2-tx').value)" style="width: 100%; background: #28a745;">一键发送</button>
+                    </div>
+                </div>
+
+                <div class="vofa-main">
+                    <div class="panel vofa-scope">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <h3 class="section-title" style="margin: 0; border: none;">📈 UART 2 实时波形</h3>
+                            <div style="font-size: 12px; color: #888;">
+                                采样率: <span id="fps-counter-2" style="color:#00e676; font-weight: bold;">0</span> pts/s 
+                                <button class="danger" style="padding: 2px 8px; margin-left: 10px; font-size: 11px;" onclick="clearChart(2)">清空波形</button>
+                            </div>
+                        </div>
+                        <div id="chart-container-2" style="flex: 1; background: #000; border-radius: 4px; border: 1px solid #444; width: 100%; overflow: hidden;"></div>
+                    </div>
+
+                    <div class="panel vofa-rx">
+                        <h3 class="section-title">📄 详细数据日志</h3>
+                        <textarea id="u2-rx" readonly placeholder="等待接收 UART 2 数据..."></textarea>
+                    </div>
                 </div>
             </div>
         </div>
@@ -231,10 +266,9 @@
             document.getElementById('page-title').innerText = title;
             document.getElementById('btn-back').style.display = 'inline-block';
 
-            // 当进入 UART1 (波形页) 时，延迟重置图表尺寸以适应右侧布局
-            if(pageId === 'page-uart1') {
-                setTimeout(resizeChart, 50);
-            }
+            // 延迟重置对应页面的图表尺寸
+            if(pageId === 'page-uart1') setTimeout(resizeChart1, 50);
+            if(pageId === 'page-uart2') setTimeout(resizeChart2, 50);
         }
 
         function goHome() {
@@ -245,20 +279,19 @@
         }
 
         // ==========================================
-        // 2. HEX/ASCII 显示切换逻辑
+        // 2. HEX/ASCII 显示切换逻辑 (支持双串口独立设置)
         // ==========================================
-        let rxMode = 'ascii'; // 默认字符模式
-        function setRxMode(mode) {
-            rxMode = mode;
+        let rxMode = { 1: 'ascii', 2: 'ascii' };
+        function setRxMode(portNum, mode) {
+            rxMode[portNum] = mode;
             // 切换按钮高亮状态
-            document.getElementById('rx-ascii').classList.remove('active');
-            document.getElementById('rx-hex').classList.remove('active');
-            document.getElementById('rx-' + mode).classList.add('active');
-            // 清空屏幕以避免乱码混合
-            document.getElementById('u1-rx').value = `--- 已切换为 ${mode.toUpperCase()} 显示模式 ---\n`;
+            document.getElementById(`rx-ascii-${portNum}`).classList.remove('active');
+            document.getElementById(`rx-hex-${portNum}`).classList.remove('active');
+            document.getElementById(`rx-${mode}-${portNum}`).classList.add('active');
+            // 清空屏幕
+            document.getElementById(`u${portNum}-rx`).value = `--- 已切换为 ${mode.toUpperCase()} 显示模式 ---\n`;
         }
 
-        // 简单的字符串转 Hex 模拟函数 (实际上 Worker 应该直接发 Uint8Array，这里做演示处理)
         function stringToHexStr(str) {
             let hex = '';
             for(let i=0; i<str.length; i++) {
@@ -293,16 +326,20 @@
             } 
             else if (msg.type === 'UART1_RX') {
                 let ta = document.getElementById('u1-rx');
-                // 根据当前模式决定显示字符还是 HEX
-                if (rxMode === 'hex') {
-                    ta.value += stringToHexStr(msg.data);
-                } else {
-                    ta.value += msg.data;
-                }
-                ta.scrollTop = ta.scrollHeight; // 滚屏
+                ta.value += (rxMode[1] === 'hex') ? stringToHexStr(msg.data) : msg.data;
+                ta.scrollTop = ta.scrollHeight;
+            }
+            else if (msg.type === 'UART2_RX') {
+                let ta = document.getElementById('u2-rx');
+                ta.value += (rxMode[2] === 'hex') ? stringToHexStr(msg.data) : msg.data;
+                ta.scrollTop = ta.scrollHeight;
             }
             else if (msg.type === 'WAVE_DATA') {
-                updateChartData(msg.data);
+                // 默认将 WAVE_DATA 抛给 UART1 图表 (你可以自定义 WAVE_DATA2)
+                updateChartData(1, msg.data);
+            }
+            else if (msg.type === 'WAVE_DATA2') {
+                updateChartData(2, msg.data);
             }
         };
 
@@ -322,55 +359,80 @@
         }
 
         // ==========================================
-        // 4. 极速波形图渲染 (uPlot)
+        // 4. 双通道独立示波器初始化 (uPlot)
         // ==========================================
         const MAX_POINTS = 500; 
-        let chartData = [ Array(MAX_POINTS).fill(0), Array(MAX_POINTS).fill(0) ];
-        for(let i=0; i<MAX_POINTS; i++) chartData[0][i] = i;
-
-        const chartDiv = document.getElementById("chart-container");
         
-        // 初始配置，尺寸会在 resizeChart 中被重写
-        let opts = {
+        // 两个图表的数据数组
+        let chartData1 = [ Array(MAX_POINTS).fill(0), Array(MAX_POINTS).fill(0) ];
+        let chartData2 = [ Array(MAX_POINTS).fill(0), Array(MAX_POINTS).fill(0) ];
+        for(let i=0; i<MAX_POINTS; i++) { chartData1[0][i] = i; chartData2[0][i] = i; }
+
+        // 配置模板
+        const getOpts = (color) => ({
             width: 500, height: 200,
             axes: [
                 { stroke: "#666", grid: { stroke: "#333", width: 1 } },
                 { stroke: "#666", grid: { stroke: "#333", width: 1 } }
             ],
             scales: { x: { time: false }, y: { auto: true } },
-            series: [ {}, { stroke: "#ff9800", width: 2 } ],
+            series: [ {}, { stroke: color, width: 2 } ],
             cursor: { sync: { key: "scope" } } 
-        };
+        });
 
-        const uplot = new uPlot(opts, chartData, chartDiv);
-        let totalPointsReceived = 0;
+        // 初始化 UART1 波形 (橙黄色)
+        const chartDiv1 = document.getElementById("chart-container-1");
+        const uplot1 = new uPlot(getOpts("#ff9800"), chartData1, chartDiv1);
+        let totalPoints1 = 0;
 
-        function updateChartData(newPointsArray) {
-            totalPointsReceived += newPointsArray.length;
-            for(let i=0; i<newPointsArray.length; i++) {
-                chartData[1].push(newPointsArray[i]);
-                chartData[1].shift();
+        // 初始化 UART2 波形 (蓝紫色)
+        const chartDiv2 = document.getElementById("chart-container-2");
+        const uplot2 = new uPlot(getOpts("#b388ff"), chartData2, chartDiv2);
+        let totalPoints2 = 0;
+
+        // 通用的波形推入函数
+        function updateChartData(portNum, newPointsArray) {
+            if(portNum === 1) {
+                totalPoints1 += newPointsArray.length;
+                for(let i=0; i<newPointsArray.length; i++) {
+                    chartData1[1].push(newPointsArray[i]);
+                    chartData1[1].shift();
+                }
+                uplot1.setData(chartData1);
+            } else if (portNum === 2) {
+                totalPoints2 += newPointsArray.length;
+                for(let i=0; i<newPointsArray.length; i++) {
+                    chartData2[1].push(newPointsArray[i]);
+                    chartData2[1].shift();
+                }
+                uplot2.setData(chartData2);
             }
-            uplot.setData(chartData);
         }
 
+        // 每秒统计双通道的 FPS
         setInterval(() => {
-            document.getElementById('fps-counter').innerText = totalPointsReceived;
-            totalPointsReceived = 0;
+            document.getElementById('fps-counter-1').innerText = totalPoints1;
+            document.getElementById('fps-counter-2').innerText = totalPoints2;
+            totalPoints1 = 0; totalPoints2 = 0;
         }, 1000);
 
-        function clearChart() {
-            chartData[1].fill(0);
-            uplot.setData(chartData);
+        function clearChart(portNum) {
+            if(portNum === 1) { chartData1[1].fill(0); uplot1.setData(chartData1); }
+            if(portNum === 2) { chartData2[1].fill(0); uplot2.setData(chartData2); }
         }
 
-        // 自适应图表尺寸的函数
-        function resizeChart() {
+        // 独立的 Resize 函数，防止隐藏状态下的图表尺寸计算错误
+        function resizeChart1() {
             if(document.getElementById('page-uart1').classList.contains('active')) {
-                uplot.setSize({ width: chartDiv.clientWidth, height: chartDiv.clientHeight });
+                uplot1.setSize({ width: chartDiv1.clientWidth, height: chartDiv1.clientHeight });
             }
         }
-        window.addEventListener("resize", resizeChart);
+        function resizeChart2() {
+            if(document.getElementById('page-uart2').classList.contains('active')) {
+                uplot2.setSize({ width: chartDiv2.clientWidth, height: chartDiv2.clientHeight });
+            }
+        }
+        window.addEventListener("resize", () => { resizeChart1(); resizeChart2(); });
     </script>
 </body>
 </html>
