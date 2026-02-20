@@ -2,167 +2,234 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>Ultra Link 综合控制台</title>
+    <title>Ultra Link 多功能调试终端</title>
     <link rel="stylesheet" href="https://unpkg.com/uplot/dist/uPlot.min.css">
     <script src="https://unpkg.com/uplot/dist/uPlot.iife.min.js"></script>
     
     <style>
-        :root { --bg: #121212; --panel: #1e1e1e; --primary: #007acc; --text: #e0e0e0; --border: #333; }
-        body { font-family: 'Consolas', 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
-        
+        :root { --bg: #1e1e1e; --panel: #2d2d2d; --primary: #007acc; --text: #eaeaea; --danger: #cc3300; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 0; height: 100vh; display: flex; flex-direction: column; }
+
         /* 顶部状态栏 */
-        .topbar { background: #000; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--primary); z-index: 10; flex-shrink: 0; }
-        .topbar h2 { margin: 0; font-size: 1.2rem; color: #4fc3f7; letter-spacing: 1px; }
-        button { background: var(--primary); color: white; border: none; padding: 6px 12px; cursor: pointer; border-radius: 4px; font-size: 13px; transition: 0.2s; font-weight: bold; }
+        .topbar { background: #111; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #333; box-shadow: 0 2px 10px rgba(0,0,0,0.5); z-index: 10; }
+        .topbar h2 { margin: 0; font-size: 1.2rem; color: #4fc3f7; }
+        button { background: var(--primary); color: white; border: none; padding: 8px 16px; cursor: pointer; border-radius: 4px; font-size: 14px; transition: 0.2s; }
         button:hover { background: #005f9e; }
-        button.danger { background: #cc3300; }
+        button.danger { background: var(--danger); }
         button.danger:hover { background: #990000; }
-        
-        input, select { background: #000; border: 1px solid #555; color: #0f0; padding: 5px; border-radius: 3px; font-family: monospace; outline: none; }
-        input:focus { border-color: var(--primary); }
+        button.back-btn { background: #555; margin-right: 15px; }
+        button.back-btn:hover { background: #777; }
 
-        /* 核心网格布局 (Dashboard) */
-        .dashboard { flex: 1; display: grid; grid-template-rows: auto 1fr auto; grid-template-columns: 1fr 1fr; gap: 10px; padding: 10px; overflow-y: auto; }
-        
-        .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 10px; display: flex; flex-direction: column; }
-        .panel-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 5px; margin-bottom: 8px; }
-        .panel-header h3 { margin: 0; font-size: 14px; color: #ffb300; }
-        
-        /* 区域分配 */
-        .scope-area { grid-column: 1 / -1; height: 280px; } /* 波形占满最上方一整行 */
-        .uart1-area { grid-column: 1 / 2; height: 250px; } /* 左边串口1 */
-        .uart2-area { grid-column: 2 / 3; height: 250px; } /* 右边串口2 */
-        
-        /* 底部控制区：将 CAN, I2C, PWM, DAC 排成一排 */
-        .controls-area { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+        /* 页面容器与切换动画 */
+        .view-container { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; }
+        .page { display: none; animation: fadeIn 0.3s ease; flex: 1; flex-direction: column; }
+        .page.active { display: flex; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
-        textarea { flex: 1; width: 100%; background: #0a0a0a; color: #00e676; border: 1px solid #444; padding: 8px; box-sizing: border-box; font-family: monospace; resize: none; font-size: 13px; border-radius: 4px; margin-bottom: 8px; }
-        .input-row { display: flex; gap: 8px; align-items: center; }
-        .input-row input[type="text"] { flex: 1; }
-        
-        /* 美化滑动条 */
-        input[type=range] { flex: 1; cursor: pointer; }
+        /* 主页网格菜单 */
+        .menu-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; max-width: 1000px; margin: 20px auto; width: 100%; }
+        .menu-card { background: var(--panel); border: 1px solid #444; border-radius: 12px; padding: 30px 20px; text-align: center; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 6px rgba(0,0,0,0.2); }
+        .menu-card:hover { transform: translateY(-5px); border-color: var(--primary); box-shadow: 0 8px 15px rgba(0,122,204,0.3); }
+        .menu-card h3 { margin: 0 0 10px 0; font-size: 1.4rem; color: #fff; }
+        .menu-card p { margin: 0; color: #aaa; font-size: 0.9rem; }
+
+        /* 子功能页面通用样式 */
+        .panel { background: var(--panel); padding: 20px; border-radius: 8px; border: 1px solid #444; flex: 1; display: flex; flex-direction: column; }
+        .control-group { margin-bottom: 15px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        input, select { background: #111; border: 1px solid #555; color: #0f0; padding: 8px; border-radius: 4px; font-family: monospace; }
+        input:focus { outline: none; border-color: var(--primary); }
+        textarea { flex: 1; width: 100%; background: #000; color: #0f0; border: 1px solid #555; padding: 10px; box-sizing: border-box; font-family: 'Consolas', monospace; resize: none; border-radius: 4px; }
+        .toolbar { display: flex; justify-content: space-between; margin-bottom: 10px; }
     </style>
 </head>
 <body>
 
     <div class="topbar">
-        <h2>Ultra Link 综合控制台</h2>
+        <div style="display: flex; align-items: center;">
+            <button id="btn-back" class="back-btn" style="display: none;" onclick="goHome()">◀ 返回主菜单</button>
+            <h2 id="page-title">Ultra Link 总控制台</h2>
+        </div>
         <div>
-            <span id="usb-status" style="color: #ff5252; margin-right: 15px; font-weight: bold;">● 未连接硬件</span>
-            <button id="btn-connect" onclick="connectUSB()">🚀 连接硬件 (WebUSB)</button>
-            <button id="btn-disconnect" class="danger" style="display:none;" onclick="disconnectUSB()">断开</button>
+            <span id="usb-status" style="color: #ff5252; margin-right: 15px; font-weight: bold;">● 未连接 (Worker休眠)</span>
+            <button id="btn-connect" onclick="connectUSB()">连接硬件</button>
+            <button id="btn-disconnect" class="danger" onclick="disconnectUSB()" style="display:none;">断开连接</button>
         </div>
     </div>
 
-    <div class="dashboard">
+    <div class="view-container">
         
-        <div class="panel scope-area">
-            <div class="panel-header">
-                <h3>📈 实时多线程示波器</h3>
-                <div style="font-size: 12px; color: #888;">
-                    采样率: <span id="fps-counter" style="color:#0f0; font-weight: bold;">0</span> pts/s 
-                    <button class="danger" style="padding: 2px 8px; margin-left: 10px;" onclick="clearChart()">清空</button>
+        <div id="page-home" class="page active">
+            <div class="menu-grid">
+                <div class="menu-card" onclick="navTo('page-scope', '实时波形示波器')" style="border-color: #ff9800;">
+                    <h3 style="color: #ff9800;">📈 实时波形</h3><p>高速多线程图形渲染引擎</p>
                 </div>
-            </div>
-            <div id="chart-container" style="flex: 1; background: #000; border-radius: 4px; overflow: hidden; position: relative;"></div>
-        </div>
-
-        <div class="panel uart1-area">
-            <div class="panel-header">
-                <h3>📟 UART 1 (主控通信)</h3>
-                <select id="u1-baud" style="font-size: 11px; padding: 2px;">
-                    <option value="115200">115200</option>
-                    <option value="2000000">2M</option>
-                </select>
-            </div>
-            <textarea id="u1-rx" readonly placeholder="接收到的数据..."></textarea>
-            <div class="input-row">
-                <input type="text" id="u1-tx" placeholder="发送指令...">
-                <button onclick="sendCMD('TX_U1', document.getElementById('u1-tx').value)">发送</button>
-                <button class="danger" onclick="document.getElementById('u1-rx').value=''">清空</button>
+                <div class="menu-card" onclick="navTo('page-uart1', 'UART 1 调试终端')">
+                    <h3>📟 UART 1</h3><p>主控全功能串口收发</p>
+                </div>
+                <div class="menu-card" onclick="navTo('page-uart2', 'UART 2 调试终端')">
+                    <h3>📟 UART 2</h3><p>辅助外设监控串口</p>
+                </div>
+                <div class="menu-card" onclick="navTo('page-can', 'CAN 总线分析仪')">
+                    <h3>🚌 CAN Bus</h3><p>报文收发 / 标准/扩展帧</p>
+                </div>
+                <div class="menu-card" onclick="navTo('page-i2c', 'I2C 寄存器调试')">
+                    <h3>🔌 I2C Master</h3><p>设备扫描 / 寄存器读写</p>
+                </div>
+                <div class="menu-card" onclick="navTo('page-analog', '模拟量与外设 (PWM/DAC)')">
+                    <h3>⚡ PWM / DAC</h3><p>占空比调节 / 模拟电压输出</p>
+                </div>
             </div>
         </div>
 
-        <div class="panel uart2-area">
-            <div class="panel-header">
-                <h3>📟 UART 2 (辅助监控)</h3>
-                <select id="u2-baud" style="font-size: 11px; padding: 2px;">
-                    <option value="9600">9600</option>
-                    <option value="115200" selected>115200</option>
-                </select>
-            </div>
-            <textarea id="u2-rx" readonly placeholder="接收到的数据..."></textarea>
-            <div class="input-row">
-                <input type="text" id="u2-tx" placeholder="发送指令...">
-                <button onclick="sendCMD('TX_U2', document.getElementById('u2-tx').value)">发送</button>
-                <button class="danger" onclick="document.getElementById('u2-rx').value=''">清空</button>
+        <div id="page-scope" class="page">
+            <div class="panel">
+                <div class="toolbar">
+                    <span style="font-size: 14px; color: #aaa;">采样率: <span id="fps-counter" style="color:#00e676; font-weight: bold; font-size: 16px;">0</span> 点/秒</span>
+                    <button class="danger" onclick="clearChart()">清空波形</button>
+                </div>
+                <div id="chart-container" style="flex: 1; background: #000; border-radius: 4px; border: 1px solid #444; width: 100%; min-height: 400px;"></div>
             </div>
         </div>
 
-        <div class="controls-area">
-            
+        <div id="page-uart1" class="page">
             <div class="panel">
-                <div class="panel-header"><h3>🚌 CAN 总线</h3></div>
-                <div class="input-row" style="margin-bottom: 5px;">
-                    <input type="text" id="can-id" placeholder="ID (Hex)" style="width: 60px;">
-                    <select id="can-type"><option>STD</option><option>EXT</option></select>
+                <div class="toolbar">
+                    <div class="control-group" style="margin: 0;">
+                        <select id="u1-baud">
+                            <option value="9600">9600</option>
+                            <option value="115200" selected>115200</option>
+                            <option value="2000000">2000000</option>
+                        </select>
+                        <button onclick="sendCMD('CFG_U1', document.getElementById('u1-baud').value)">应用波特率</button>
+                    </div>
+                    <button class="danger" onclick="document.getElementById('u1-rx').value=''">清空屏幕</button>
                 </div>
-                <div class="input-row">
-                    <input type="text" id="can-data" placeholder="Data (Hex) 空格隔开" style="font-size: 11px;">
-                    <button onclick="sendCMD('CAN_TX', document.getElementById('can-id').value + '|' + document.getElementById('can-data').value)">发</button>
+                <textarea id="u1-rx" readonly placeholder="等待多线程接收 UART1 数据..."></textarea>
+                <div class="control-group" style="margin-top: 15px;">
+                    <input type="text" id="u1-tx" placeholder="输入要发送的内容..." style="flex: 1;">
+                    <button onclick="sendCMD('TX_U1', document.getElementById('u1-tx').value)">发送</button>
                 </div>
             </div>
-
-            <div class="panel">
-                <div class="panel-header"><h3>🔌 I2C Master</h3></div>
-                <div class="input-row" style="margin-bottom: 5px;">
-                    <input type="text" id="i2c-addr" placeholder="Addr(Hex)" style="width: 45%;">
-                    <input type="text" id="i2c-reg" placeholder="Reg(Hex)" style="width: 45%;">
-                </div>
-                <div class="input-row">
-                    <input type="text" id="i2c-data" placeholder="Write Data(Hex)">
-                    <button onclick="sendCMD('I2C_W', '')">写</button>
-                    <button onclick="sendCMD('I2C_R', '')" style="background:#28a745;">读</button>
-                </div>
-            </div>
-
-            <div class="panel">
-                <div class="panel-header"><h3>⚡ PWM 输出</h3></div>
-                <div class="input-row" style="margin-bottom: 10px;">
-                    <span style="font-size: 12px; color: #aaa;">频率:</span>
-                    <input type="number" id="pwm-freq" value="10000" style="width: 60px;"> Hz
-                </div>
-                <div class="input-row">
-                    <input type="range" id="pwm-duty" min="0" max="100" value="50" oninput="document.getElementById('pwm-val').innerText = this.value + '%'">
-                    <span id="pwm-val" style="width: 35px; font-size: 12px; text-align: right;">50%</span>
-                    <button onclick="sendCMD('PWM_SET', document.getElementById('pwm-freq').value + '|' + document.getElementById('pwm-duty').value)">设</button>
-                </div>
-            </div>
-
-            <div class="panel">
-                <div class="panel-header"><h3>📉 DAC 模拟输出</h3></div>
-                <div class="input-row" style="margin-top: 10px;">
-                    <input type="number" id="dac-val" placeholder="0 - 3300" style="flex:1;">
-                    <span style="font-size: 12px; color: #aaa;">mV</span>
-                    <button onclick="sendCMD('DAC_SET', document.getElementById('dac-val').value)">输出</button>
-                </div>
-            </div>
-
         </div>
+
+        <div id="page-uart2" class="page">
+            <div class="panel">
+                <div class="toolbar">
+                    <h3 style="margin: 0; color: #aaa; font-size: 14px;">UART 2 接收区</h3>
+                    <button class="danger" onclick="document.getElementById('u2-rx').value=''">清空屏幕</button>
+                </div>
+                <textarea id="u2-rx" readonly placeholder="等待多线程接收 UART2 数据..."></textarea>
+                <div class="control-group" style="margin-top: 15px;">
+                    <input type="text" id="u2-tx" placeholder="输入要发送的内容..." style="flex: 1;">
+                    <button onclick="sendCMD('TX_U2', document.getElementById('u2-tx').value)">发送</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="page-can" class="page">
+            <div class="panel">
+                <h3 style="margin-top: 0; color: #4fc3f7;">发送 CAN 报文</h3>
+                <div class="control-group">
+                    <select id="can-type"><option value="STD">标准帧 (STD)</option><option value="EXT">扩展帧 (EXT)</option></select>
+                    ID (Hex): <input type="text" id="can-id" placeholder="123" size="8">
+                    Data (Hex): <input type="text" id="can-data" placeholder="11 22 33 44 55 66 77 88" style="flex: 1;">
+                    <button onclick="sendCMD('CAN_TX', document.getElementById('can-id').value + '|' + document.getElementById('can-data').value)">发送报文</button>
+                </div>
+                <hr style="border-color: #444; margin: 15px 0; width: 100%;">
+                <h3 style="margin-top: 0; color: #4fc3f7;">接收记录</h3>
+                <textarea id="can-rx" readonly placeholder="CAN 总线数据将显示在这里..."></textarea>
+            </div>
+        </div>
+
+        <div id="page-i2c" class="page">
+            <div class="panel">
+                <h3 style="margin-top: 0; color: #4fc3f7;">I2C 主机模式控制</h3>
+                <div class="control-group">
+                    <button onclick="sendCMD('I2C_SCAN', '')">扫描总线设备 (Scan)</button>
+                </div>
+                <div class="control-group">
+                    设备地址 (Hex): <input type="text" id="i2c-addr" placeholder="50" size="6">
+                    寄存器 (Hex): <input type="text" id="i2c-reg" placeholder="00" size="6">
+                    读取长度: <input type="number" id="i2c-len" value="1" min="1" max="32" style="width: 60px;">
+                    <button onclick="sendCMD('I2C_READ', '')" style="background: #28a745;">读取 (Read)</button>
+                </div>
+                <div class="control-group">
+                    写入数据 (Hex): <input type="text" id="i2c-write-data" placeholder="FF" style="flex: 1;">
+                    <button onclick="sendCMD('I2C_WRITE', '')" class="danger">写入 (Write)</button>
+                </div>
+                <textarea id="i2c-log" readonly style="height: 150px; flex: none;" placeholder="操作日志..."></textarea>
+            </div>
+        </div>
+
+        <div id="page-analog" class="page">
+            <div class="panel">
+                <h3 style="margin-top: 0; color: #4fc3f7;">PWM 输出配置</h3>
+                <div class="control-group">
+                    频率 (Hz): <input type="number" id="pwm-freq" value="1000" style="width: 100px;">
+                    <button onclick="sendCMD('PWM_FREQ', document.getElementById('pwm-freq').value)">设置频率</button>
+                </div>
+                <div class="control-group">
+                    占空比: <input type="range" id="pwm-duty" min="0" max="100" value="50" style="width: 300px;" oninput="document.getElementById('pwm-val').innerText = this.value + '%'">
+                    <span id="pwm-val" style="display:inline-block; width: 50px; color: #0f0;">50%</span>
+                    <button onclick="sendCMD('PWM_DUTY', document.getElementById('pwm-duty').value)">实时应用</button>
+                </div>
+                
+                <hr style="border-color: #444; margin: 20px 0; width: 100%;">
+                
+                <h3 style="margin-top: 0; color: #4fc3f7;">DAC 模拟量输出</h3>
+                <div class="control-group">
+                    输出电压 (mV): <input type="number" id="dac-mv" value="1500" min="0" max="3300" style="width: 100px;">
+                    <button onclick="sendCMD('DAC_OUT', document.getElementById('dac-mv').value)">设置电压</button>
+                </div>
+            </div>
+        </div>
+
     </div>
 
     <script>
+        // ==========================================
+        // 1. 页面路由与 UI 切换逻辑
+        // ==========================================
+        function navTo(pageId, title) {
+            // 隐藏所有页面
+            document.querySelectorAll('.page').forEach(el => el.classList.remove('active'));
+            // 显示目标页面
+            document.getElementById(pageId).classList.add('active');
+            // 修改标题和返回按钮
+            document.getElementById('page-title').innerText = title;
+            document.getElementById('btn-back').style.display = 'inline-block';
+
+            // 【重点修补】：如果进入了波形图页面，由于之前隐藏时宽度为0，需要重新触发图表自适应尺寸
+            if(pageId === 'page-scope') {
+                setTimeout(() => {
+                    const chartDiv = document.getElementById("chart-container");
+                    if (uplot && chartDiv.clientWidth > 0) {
+                        uplot.setSize({ width: chartDiv.clientWidth, height: chartDiv.clientHeight });
+                    }
+                }, 50); // 给 DOM 渲染留 50ms 的喘息时间
+            }
+        }
+
+        function goHome() {
+            document.querySelectorAll('.page').forEach(el => el.classList.remove('active'));
+            document.getElementById('page-home').classList.add('active');
+            document.getElementById('page-title').innerText = 'Ultra Link 总控制台';
+            document.getElementById('btn-back').style.display = 'none';
+        }
+
+        // ==========================================
+        // 2. 多线程通信机制 (Worker)
+        // ==========================================
+        // 确保你的目录下有一个叫做 usb-worker.js 的文件！
         const worker = new Worker('usb-worker.js'); 
         let isConnected = false;
 
-        // 1. 监听后台发来的数据
         worker.onmessage = (event) => {
             const msg = event.data;
 
             if (msg.type === 'STATUS') {
                 if (msg.data === 'CONNECTED') {
-                    document.getElementById('usb-status').innerText = '🟢 硬件已连接';
+                    document.getElementById('usb-status').innerText = '🟢 硬件已连接 (多线程就绪)';
                     document.getElementById('usb-status').style.color = '#00e676';
                     document.getElementById('btn-connect').style.display = 'none';
                     document.getElementById('btn-disconnect').style.display = 'inline-block';
@@ -186,15 +253,17 @@
                 ta.scrollTop = ta.scrollHeight;
             }
             else if (msg.type === 'WAVE_DATA') {
+                // 将后台解析好的大批量波形点阵发给图表
                 updateChartData(msg.data);
             }
         };
 
-        // 2. 按钮事件：连接/断开/发送指令
+        // UI 按钮触发连接请求
         async function connectUSB() {
             try {
-                // 必须在主线程触发浏览器授权弹窗
+                // 必须在主线程触发授权弹窗
                 await navigator.usb.requestDevice({ filters: [] });
+                // 授权后让 Worker 接管
                 worker.postMessage({ cmd: 'CONNECT' });
             } catch (error) {
                 console.warn('连接取消或失败:', error);
@@ -205,7 +274,7 @@
             worker.postMessage({ cmd: 'DISCONNECT' });
         }
 
-        // 发送通用指令给后台 Worker
+        // 统一发包函数：告诉 Worker 要向硬件发送什么指令
         function sendCMD(cmdType, payload) {
             if (!isConnected) { alert("请先连接硬件！"); return; }
             let packetStr = JSON.stringify({ cmd: cmdType, data: payload });
@@ -213,46 +282,48 @@
             worker.postMessage({ cmd: 'SEND_DATA', payload: dataBuffer });
         }
 
-        // 3. 高性能 uPlot 示波器初始化
+        // ==========================================
+        // 3. 极速波形图渲染 (uPlot)
+        // ==========================================
         const MAX_POINTS = 500; 
         let chartData = [
-            Array(MAX_POINTS).fill(0), // X轴 (时间序列)
-            Array(MAX_POINTS).fill(0)  // Y轴 (数值)
+            Array(MAX_POINTS).fill(0), // X轴索引
+            Array(MAX_POINTS).fill(0)  // Y轴数值
         ];
         for(let i=0; i<MAX_POINTS; i++) chartData[0][i] = i;
 
-        // 获取波形容器的大小，动态适配
-        const chartDiv = document.getElementById("chart-container");
+        // 初始化 uPlot 配置
         let opts = {
-            width: chartDiv.clientWidth, 
-            height: chartDiv.clientHeight - 5, // 稍微减一点防止出现滚动条
+            width: 800, // 初始宽度，稍后会自动修正
+            height: 400,
             axes: [
-                { stroke: "#666", grid: { stroke: "#222", width: 1 } },
-                { stroke: "#666", grid: { stroke: "#222", width: 1 } }
+                { stroke: "#666", grid: { stroke: "#333", width: 1 } },
+                { stroke: "#666", grid: { stroke: "#333", width: 1 } }
             ],
             scales: { x: { time: false }, y: { auto: true } },
             series: [
                 {}, 
-                { stroke: "#ffb300", width: 2 } // Y轴波形线颜色
+                { stroke: "#ff9800", width: 2 } // Y轴波形线颜色
             ],
-            cursor: { sync: { key: "scope" } } // 启用炫酷的十字光标
+            cursor: { sync: { key: "scope" } } 
         };
 
+        const chartDiv = document.getElementById("chart-container");
         const uplot = new uPlot(opts, chartData, chartDiv);
         let totalPointsReceived = 0;
 
+        // 更新波形核心函数 (使用滚动数组策略)
         function updateChartData(newPointsArray) {
             totalPointsReceived += newPointsArray.length;
             
-            // 滚动数组机制
             for(let i=0; i<newPointsArray.length; i++) {
-                chartData[1].push(newPointsArray[i]);
-                chartData[1].shift();
+                chartData[1].push(newPointsArray[i]); // 尾部推入新点
+                chartData[1].shift();                 // 头部踢出老点
             }
-            uplot.setData(chartData);
+            uplot.setData(chartData); // 极速重绘
         }
 
-        // FPS / 采样率统计
+        // 每秒统计一次采样率
         setInterval(() => {
             document.getElementById('fps-counter').innerText = totalPointsReceived;
             totalPointsReceived = 0;
@@ -263,9 +334,11 @@
             uplot.setData(chartData);
         }
 
-        // 窗口大小改变时自动重绘图表尺寸
+        // 窗口大小变化时自适应图表尺寸
         window.addEventListener("resize", () => {
-            uplot.setSize({ width: chartDiv.clientWidth, height: chartDiv.clientHeight - 5 });
+            if(document.getElementById('page-scope').classList.contains('active')) {
+                uplot.setSize({ width: chartDiv.clientWidth, height: chartDiv.clientHeight });
+            }
         });
     </script>
 </body>
