@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>Ultra Link 多功能调试终端</title>
+    <link rel="stylesheet" href="https://unpkg.com/uplot/dist/uPlot.min.css">
+    <script src="https://unpkg.com/uplot/dist/uPlot.iife.min.js"></script>
+
+    <style>
+        :root { --bg: #1e1e1e; --panel: #2d2d2d; --primary: #007acc; --text: #eaeaea; --danger: #cc3300; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 0; height: 100vh; display: flex; flex-direction: column; }
+        .topbar { background: #111; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #333; z-index: 10; }
+        .topbar h2 { margin: 0; font-size: 1.2rem; color: #4fc3f7; }
+        button { background: var(--primary); color: white; border: none; padding: 8px 16px; cursor: pointer; border-radius: 4px; font-size: 14px; transition: 0.2s; }
+        button:hover { background: #005f9e; }
+        button.danger { background: var(--danger); }
+        button.back-btn { background: #555; margin-right: 15px; }
+        .view-container { flex: 1; padding: 20px; overflow-y: auto; }
+        .page { display: none; animation: fadeIn 0.3s ease; }
+        .page.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .menu-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; max-width: 1000px; margin: 40px auto; }
+        .menu-card { background: var(--panel); border: 1px solid #444; border-radius: 12px; padding: 30px 20px; text-align: center; cursor: pointer; transition: all 0.2s; }
+        .menu-card:hover { transform: translateY(-5px); border-color: var(--primary); }
+        .menu-card h3 { margin: 0 0 10px 0; color: #4fc3f7; }
+        .panel { background: var(--panel); padding: 20px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #444; }
+        textarea { width: 100%; height: 300px; background: #000; color: #0f0; border: 1px solid #555; padding: 10px; box-sizing: border-box; font-family: 'Consolas', monospace; resize: vertical; }
+        .control-group { margin-bottom: 15px; display: flex; align-items: center; gap: 10px; }
+        input { background: #111; border: 1px solid #555; color: white; padding: 8px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+
+    <div class="topbar">
+        <div style="display: flex; align-items: center;">
+            <button id="btn-back" class="back-btn" style="display: none;" onclick="goHome()">◀ 返回主菜单</button>
+            <h2 id="page-title">Ultra Link 总控制台</h2>
+        </div>
+        <div>
+            <span id="usb-status" style="color: #ff5252; margin-right: 15px; font-weight: bold;">● 未连接 (Worker休眠)</span>
+            <button id="btn-connect" onclick="connectUSB()">连接硬件</button>
+            <button id="btn-disconnect" class="danger" onclick="disconnectUSB()" style="display:none;">断开连接</button>
+        </div>
+    </div>
+
+    <div class="view-container">
+        <div id="page-home" class="page active">
+            <div class="menu-grid">
+                <div class="menu-card" onclick="navTo('page-uart1', 'UART 1 调试终端')">
+                    <h3>UART 1</h3><p>全功能串口收发</p>
+                </div>
+                <div class="menu-card" onclick="navTo('page-scope', '多通道实时示波器')" style="border-color: #ff9800;">
+                    <h3 style="color: #ff9800;">📈 实时波形 (Scope)</h3><p>高性能多线程渲染引擎</p>
+                </div>
+                <div class="menu-card" onclick="navTo('page-dap', 'DAP 仿真与烧录')">
+                    <h3>DAPLink</h3><p>固件下载 / 复位控制</p>
+                </div>
+            </div>
+        </div>
+
+        <div id="page-uart1" class="page">
+            <div class="panel">
+                <textarea id="u1-rx" readonly placeholder="等待接收多线程串口数据..."></textarea>
+                <div class="control-group" style="margin-top: 15px;">
+                    <input type="text" id="u1-tx" placeholder="发送指令..." style="flex: 1;">
+                    <button onclick="sendUSBString('TX_U1', document.getElementById('u1-tx').value)">发送</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="page-scope" class="page">
+            <div class="panel">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+                    <span>采样率: <span id="fps-counter" style="color:#00e676">0</span> 点/秒</span>
+                    <button onclick="clearChart()" class="danger">清空波形</button>
+                </div>
+                <div id="chart-container" style="background: #000; border: 1px solid #444; border-radius: 4px; padding: 10px;"></div>
+            </div>
+        </div>
+
+        <div id="page-dap" class="page">
+            <div class="panel">
+                <button class="danger" onclick="sendUSBString('DAP_SYS_RESET', '')">系统复位 (Reset)</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // UI 路由逻辑
+        // ==========================================
+        function navTo(pageId, title) {
+            document.querySelectorAll('.page').forEach(el => el.classList.remove('active'));
+            document.getElementById(pageId).classList.add('active');
+            document.getElementById('page-title').innerText = title;
+            document.getElementById('btn-back').style.display = 'inline-block';
+        }
+
+        function goHome() {
+            document.querySelectorAll('.page').forEach(el => el.classList.remove('active'));
+            document.getElementById('page-home').classList.add('active');
+            document.getElementById('page-title').innerText = 'Ultra Link 总控制台';
+            document.getElementById('btn-back').style.display = 'none';
+        }
+
+        // ==========================================
+        // 多线程 Web Worker 通信架构核心
+        // ==========================================
+        const worker = new Worker('usb-worker.js'); // 启动后台大管家
+        let isConnected = false;
+
+        // 监听后台大管家发来的汇报
+        worker.onmessage = (event) => {
+            const msg = event.data;
+
+            if (msg.type === 'STATUS') {
+                if (msg.data === 'CONNECTED') {
+                    document.getElementById('usb-status').innerText = '🟢 已连接 (多线程就绪)';
+                    document.getElementById('usb-status').style.color = '#00e676';
+                    document.getElementById('btn-connect').style.display = 'none';
+                    document.getElementById('btn-disconnect').style.display = 'inline-block';
+                    isConnected = true;
+                } else if (msg.data === 'DISCONNECTED') {
+                    document.getElementById('usb-status').innerText = '● 未连接';
+                    document.getElementById('usb-status').style.color = '#ff5252';
+                    document.getElementById('btn-connect').style.display = 'inline-block';
+                    document.getElementById('btn-disconnect').style.display = 'none';
+                    isConnected = false;
+                }
+            }
+            else if (msg.type === 'ERROR') {
+                alert("Worker 错误: " + msg.data);
+            }
+            else if (msg.type === 'UART1_RX') {
+                // 处理串口文本
+                let ta = document.getElementById('u1-rx');
+                ta.value += msg.data;
+                ta.scrollTop = ta.scrollHeight;
+            }
+            else if (msg.type === 'WAVE_DATA') {
+                // 处理波形数组
+                updateChartData(msg.data);
+            }
+        };
+
+        // 用户点击连接按钮 (必须在主线程执行权限请求)
+        async function connectUSB() {
+            try {
+                // 1. 弹出系统级授权窗口
+                await navigator.usb.requestDevice({ filters: [] });
+                // 2. 拿到授权后，通知后台 Worker 接管物理接口并启动监听死循环
+                worker.postMessage({ cmd: 'CONNECT' });
+            } catch (error) {
+                alert('授权失败或被取消: ' + error.message);
+            }
+        }
+
+        function disconnectUSB() {
+            worker.postMessage({ cmd: 'DISCONNECT' });
+        }
+
+        // 统一发包函数：主线程不碰硬件，只把任务派发给 Worker
+        function sendUSBString(cmdType, payload) {
+            if (!isConnected) { alert("请先连接硬件！"); return; }
+            let packetStr = JSON.stringify({ cmd: cmdType, data: payload });
+            const dataBuffer = new TextEncoder().encode(packetStr);
+            worker.postMessage({ cmd: 'SEND_DATA', payload: dataBuffer });
+        }
+
+        // ==========================================
+        // 高性能 uPlot 示波器渲染引擎
+        // ==========================================
+        const MAX_POINTS = 500; // 屏幕上最多保留 500 个点，形成滚动效果
+        let chartData = [
+            Array(MAX_POINTS).fill(0), // X轴 (时间序列，简单的索引)
+            Array(MAX_POINTS).fill(0)  // Y轴 (你的电压/ADC值)
+        ];
+        // 初始化 X 轴索引
+        for(let i=0; i<MAX_POINTS; i++) chartData[0][i] = i;
+
+        // 配置 uPlot (暗黑极客风格)
+        let opts = {
+            width: 800, height: 400,
+            axes: [
+                { stroke: "#ccc", grid: { stroke: "#333", width: 1 } },
+                { stroke: "#ccc", grid: { stroke: "#333", width: 1 } }
+            ],
+            scales: { x: { time: false }, y: { auto: true } },
+            series: [
+                {}, // X轴配置空置
+                { stroke: "#00e676", width: 2 } // Y轴波形线颜色(荧光绿)
+            ]
+        };
+
+        const uplot = new uPlot(opts, chartData, document.getElementById("chart-container"));
+        let totalPointsReceived = 0;
+
+        // 接收来自 Worker 的批量点阵，推入图表更新
+        function updateChartData(newPointsArray) {
+            totalPointsReceived += newPointsArray.length;
+
+            // 将新数据追加到数组末尾，并把数组头部的老数据挤出去 (实现流水滚动效果)
+            for(let i=0; i<newPointsArray.length; i++) {
+                chartData[1].push(newPointsArray[i]);
+                chartData[1].shift();
+            }
+
+            // 极速重绘
+            uplot.setData(chartData);
+        }
+
+        // 简易的采样率统计仪 (每秒更新一次)
+        setInterval(() => {
+            document.getElementById('fps-counter').innerText = totalPointsReceived;
+            totalPointsReceived = 0;
+        }, 1000);
+
+        function clearChart() {
+            chartData[1].fill(0);
+            uplot.setData(chartData);
+        }
+    </script>
+</body>
+</html>
