@@ -36,9 +36,11 @@
         /* 通用控件样式 */
         .panel { background: var(--panel); padding: 15px; border-radius: 8px; border: 1px solid #444; }
         .control-group { margin-bottom: 15px; display: flex; flex-direction: column; gap: 8px; }
-        .control-row { display: flex; align-items: center; gap: 10px; width: 100%; }
-        input, select { background: #111; border: 1px solid #555; color: #0f0; padding: 8px; border-radius: 4px; font-family: monospace; width: 100%; box-sizing: border-box; }
-        input:focus { outline: none; border-color: var(--primary); }
+        .control-row { display: flex; align-items: center; gap: 10px; width: 100%; margin-bottom: 8px; }
+        .control-row:last-child { margin-bottom: 0; }
+        
+        input, select { background: #111; border: 1px solid #555; color: #0f0; padding: 6px; border-radius: 4px; font-family: monospace; width: 100%; box-sizing: border-box; font-size: 13px; }
+        input:focus, select:focus { outline: none; border-color: var(--primary); }
         textarea { flex: 1; width: 100%; background: #000; color: #0f0; border: 1px solid #555; padding: 10px; box-sizing: border-box; font-family: 'Consolas', monospace; resize: none; border-radius: 4px; }
         
         /* 切换按钮组 (Hex/ASCII) */
@@ -48,8 +50,12 @@
 
         /* ================= VOFA+ 专属布局 ================= */
         .vofa-layout { display: flex; gap: 15px; height: 100%; width: 100%; }
-        /* 左侧边栏 (定宽) */
-        .vofa-sidebar { width: 260px; display: flex; flex-direction: column; gap: 15px; flex-shrink: 0; }
+        
+        /* 左侧边栏 (定宽 + 滚动条隐藏) */
+        .vofa-sidebar { width: 270px; display: flex; flex-direction: column; gap: 15px; flex-shrink: 0; overflow-y: auto; padding-right: 5px; }
+        .vofa-sidebar::-webkit-scrollbar { width: 6px; }
+        .vofa-sidebar::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+        
         /* 右侧主区 (自适应填满) */
         .vofa-main { flex: 1; display: flex; flex-direction: column; gap: 15px; min-width: 0; }
         /* 右上：波形区 */
@@ -58,6 +64,7 @@
         .vofa-rx { flex: 2; display: flex; flex-direction: column; min-height: 150px; }
         
         .section-title { font-size: 13px; color: #4fc3f7; margin: 0 0 10px 0; border-bottom: 1px solid #444; padding-bottom: 5px; font-weight: bold; text-transform: uppercase; }
+        .cfg-label { font-size: 12px; width: 50px; color: #aaa; flex-shrink: 0; }
     </style>
 </head>
 <body>
@@ -101,28 +108,71 @@
                 
                 <div class="vofa-sidebar">
                     <div class="panel" style="flex: none;">
-                        <h3 class="section-title">⚙️ 串口 1 配置</h3>
-                        <div class="control-row" style="margin-bottom: 10px;">
-                            <span style="font-size: 13px; width: 60px;">波特率</span>
+                        <h3 class="section-title">⚙️ 数据引擎 & 配置</h3>
+                        
+                        <div class="control-row" style="margin-bottom: 12px;">
+                            <span class="cfg-label" style="color: #ff9800;">引擎</span>
+                            <select id="u1-engine" style="border-color: #ff9800; color: #ff9800;">
+                                <option value="rawdata">RawData (明文/HEX)</option>
+                                <option value="justfloat">JustFloat (浮点协议)</option>
+                            </select>
+                        </div>
+
+                        <div class="control-row">
+                            <span class="cfg-label">波特率</span>
                             <select id="u1-baud">
                                 <option value="9600">9600</option>
                                 <option value="115200" selected>115200</option>
                                 <option value="2000000">2000000</option>
                             </select>
                         </div>
-                        <button onclick="sendCMD('CFG_U1', document.getElementById('u1-baud').value)" style="width: 100%;">应用配置</button>
+                        <div class="control-row">
+                            <span class="cfg-label">数据位</span>
+                            <select id="u1-data">
+                                <option value="8" selected>8</option>
+                                <option value="7">7</option>
+                                <option value="6">6</option>
+                                <option value="5">5</option>
+                            </select>
+                        </div>
+                        <div class="control-row">
+                            <span class="cfg-label">停止位</span>
+                            <select id="u1-stop">
+                                <option value="1" selected>1</option>
+                                <option value="1.5">1.5</option>
+                                <option value="2">2</option>
+                            </select>
+                        </div>
+                        <div class="control-row">
+                            <span class="cfg-label">校验位</span>
+                            <select id="u1-parity">
+                                <option value="0" selected>None (无)</option>
+                                <option value="1">Odd (奇)</option>
+                                <option value="2">Even (偶)</option>
+                            </select>
+                        </div>
+                        <div class="control-row" style="margin-bottom: 10px;">
+                            <span class="cfg-label">流控</span>
+                            <select id="u1-flow">
+                                <option value="0" selected>None (无)</option>
+                                <option value="1">RTS/CTS (硬件)</option>
+                                <option value="2">XON/XOFF (软件)</option>
+                            </select>
+                        </div>
+
+                        <button onclick="applySerialConfig(1)" style="width: 100%;">应用引擎与配置</button>
                     </div>
 
                     <div class="panel" style="flex: none;">
                         <h3 class="section-title">📥 接收设置</h3>
                         <div class="toggle-group" style="margin-bottom: 10px;">
                             <button id="rx-ascii-1" class="toggle-btn active" onclick="setRxMode(1, 'ascii')">字符 (ASCII)</button>
-                            <button id="rx-hex-1" class="toggle-btn" onclick="setRxMode(1, 'hex')">十六进制 (HEX)</button>
+                            <button id="rx-hex-1" class="toggle-btn" onclick="setRxMode(1, 'hex')">HEX</button>
                         </div>
                         <button class="danger" onclick="document.getElementById('u1-rx').value=''" style="width: 100%;">清空接收区</button>
                     </div>
 
-                    <div class="panel" style="flex: 1; display: flex; flex-direction: column;">
+                    <div class="panel" style="flex: 1; display: flex; flex-direction: column; min-height: 150px;">
                         <h3 class="section-title">📤 发送区</h3>
                         <textarea id="u1-tx" placeholder="输入要发送的数据..." style="flex: 1; margin-bottom: 10px; color: #fff;"></textarea>
                         <button onclick="sendCMD('TX_U1', document.getElementById('u1-tx').value)" style="width: 100%; background: #28a745;">一键发送</button>
@@ -154,28 +204,71 @@
                 
                 <div class="vofa-sidebar">
                     <div class="panel" style="flex: none;">
-                        <h3 class="section-title">⚙️ 串口 2 配置</h3>
-                        <div class="control-row" style="margin-bottom: 10px;">
-                            <span style="font-size: 13px; width: 60px;">波特率</span>
+                        <h3 class="section-title">⚙️ 数据引擎 & 配置</h3>
+                        
+                        <div class="control-row" style="margin-bottom: 12px;">
+                            <span class="cfg-label" style="color: #ff9800;">引擎</span>
+                            <select id="u2-engine" style="border-color: #ff9800; color: #ff9800;">
+                                <option value="rawdata">RawData (明文/HEX)</option>
+                                <option value="justfloat">JustFloat (浮点协议)</option>
+                            </select>
+                        </div>
+
+                        <div class="control-row">
+                            <span class="cfg-label">波特率</span>
                             <select id="u2-baud">
                                 <option value="9600">9600</option>
                                 <option value="115200" selected>115200</option>
                                 <option value="2000000">2000000</option>
                             </select>
                         </div>
-                        <button onclick="sendCMD('CFG_U2', document.getElementById('u2-baud').value)" style="width: 100%;">应用配置</button>
+                        <div class="control-row">
+                            <span class="cfg-label">数据位</span>
+                            <select id="u2-data">
+                                <option value="8" selected>8</option>
+                                <option value="7">7</option>
+                                <option value="6">6</option>
+                                <option value="5">5</option>
+                            </select>
+                        </div>
+                        <div class="control-row">
+                            <span class="cfg-label">停止位</span>
+                            <select id="u2-stop">
+                                <option value="1" selected>1</option>
+                                <option value="1.5">1.5</option>
+                                <option value="2">2</option>
+                            </select>
+                        </div>
+                        <div class="control-row">
+                            <span class="cfg-label">校验位</span>
+                            <select id="u2-parity">
+                                <option value="0" selected>None (无)</option>
+                                <option value="1">Odd (奇)</option>
+                                <option value="2">Even (偶)</option>
+                            </select>
+                        </div>
+                        <div class="control-row" style="margin-bottom: 10px;">
+                            <span class="cfg-label">流控</span>
+                            <select id="u2-flow">
+                                <option value="0" selected>None (无)</option>
+                                <option value="1">RTS/CTS (硬件)</option>
+                                <option value="2">XON/XOFF (软件)</option>
+                            </select>
+                        </div>
+
+                        <button onclick="applySerialConfig(2)" style="width: 100%;">应用引擎与配置</button>
                     </div>
 
                     <div class="panel" style="flex: none;">
                         <h3 class="section-title">📥 接收设置</h3>
                         <div class="toggle-group" style="margin-bottom: 10px;">
                             <button id="rx-ascii-2" class="toggle-btn active" onclick="setRxMode(2, 'ascii')">字符 (ASCII)</button>
-                            <button id="rx-hex-2" class="toggle-btn" onclick="setRxMode(2, 'hex')">十六进制 (HEX)</button>
+                            <button id="rx-hex-2" class="toggle-btn" onclick="setRxMode(2, 'hex')">HEX</button>
                         </div>
                         <button class="danger" onclick="document.getElementById('u2-rx').value=''" style="width: 100%;">清空接收区</button>
                     </div>
 
-                    <div class="panel" style="flex: 1; display: flex; flex-direction: column;">
+                    <div class="panel" style="flex: 1; display: flex; flex-direction: column; min-height: 150px;">
                         <h3 class="section-title">📤 发送区</h3>
                         <textarea id="u2-tx" placeholder="输入要发送的数据..." style="flex: 1; margin-bottom: 10px; color: #fff;"></textarea>
                         <button onclick="sendCMD('TX_U2', document.getElementById('u2-tx').value)" style="width: 100%; background: #28a745;">一键发送</button>
@@ -301,7 +394,7 @@
         }
 
         // ==========================================
-        // 3. 多线程通信机制 (Worker)
+        // 3. 多线程通信机制 (Worker) 与 高级参数下发
         // ==========================================
         const worker = new Worker('usb-worker.js'); 
         let isConnected = false;
@@ -335,7 +428,6 @@
                 ta.scrollTop = ta.scrollHeight;
             }
             else if (msg.type === 'WAVE_DATA') {
-                // 默认将 WAVE_DATA 抛给 UART1 图表 (你可以自定义 WAVE_DATA2)
                 updateChartData(1, msg.data);
             }
             else if (msg.type === 'WAVE_DATA2') {
@@ -358,17 +450,41 @@
             worker.postMessage({ cmd: 'SEND_DATA', payload: new TextEncoder().encode(packetStr) });
         }
 
+        // 🔥 【新增】一键应用所有串口配置与数据引擎的函数
+        function applySerialConfig(portNum) {
+            if (!isConnected) { alert("请先连接硬件！"); return; }
+            
+            // 抓取所有的配置参数
+            let configObj = {
+                engine: document.getElementById(`u${portNum}-engine`).value, // rawdata 或 justfloat
+                baud: parseInt(document.getElementById(`u${portNum}-baud`).value),
+                dataBits: parseInt(document.getElementById(`u${portNum}-data`).value),
+                stopBits: parseFloat(document.getElementById(`u${portNum}-stop`).value),
+                parity: parseInt(document.getElementById(`u${portNum}-parity`).value),
+                flow: parseInt(document.getElementById(`u${portNum}-flow`).value)
+            };
+
+            // 1. 告诉后台 Worker 切换数据引擎 (Worker会根据是 JustFloat 还是 RawData 使用不同的协议解析器)
+            worker.postMessage({ cmd: `SET_ENGINE_U${portNum}`, payload: configObj.engine });
+
+            // 2. 将串口硬件参数打包发给单片机 (转成 JSON 字符串发送)
+            // 你的单片机可以通过解析 {"cmd":"CFG_U1", "data":{"baud":115200,"dataBits":8...}} 来配置硬件
+            let packetStr = JSON.stringify({ cmd: `CFG_U${portNum}`, data: configObj });
+            worker.postMessage({ cmd: 'SEND_DATA', payload: new TextEncoder().encode(packetStr) });
+            
+            // 视觉反馈
+            document.getElementById(`u${portNum}-rx`).value += `\n>>> 串口 ${portNum} 参数已更新: ${configObj.baud}bps, ${configObj.dataBits}${configObj.parity === 0 ? 'N' : (configObj.parity === 1 ? 'O' : 'E')}${configObj.stopBits} [引擎: ${configObj.engine.toUpperCase()}]\n`;
+        }
+
         // ==========================================
         // 4. 双通道独立示波器初始化 (uPlot)
         // ==========================================
         const MAX_POINTS = 500; 
         
-        // 两个图表的数据数组
         let chartData1 = [ Array(MAX_POINTS).fill(0), Array(MAX_POINTS).fill(0) ];
         let chartData2 = [ Array(MAX_POINTS).fill(0), Array(MAX_POINTS).fill(0) ];
         for(let i=0; i<MAX_POINTS; i++) { chartData1[0][i] = i; chartData2[0][i] = i; }
 
-        // 配置模板
         const getOpts = (color) => ({
             width: 500, height: 200,
             axes: [
@@ -380,17 +496,14 @@
             cursor: { sync: { key: "scope" } } 
         });
 
-        // 初始化 UART1 波形 (橙黄色)
         const chartDiv1 = document.getElementById("chart-container-1");
         const uplot1 = new uPlot(getOpts("#ff9800"), chartData1, chartDiv1);
         let totalPoints1 = 0;
 
-        // 初始化 UART2 波形 (蓝紫色)
         const chartDiv2 = document.getElementById("chart-container-2");
         const uplot2 = new uPlot(getOpts("#b388ff"), chartData2, chartDiv2);
         let totalPoints2 = 0;
 
-        // 通用的波形推入函数
         function updateChartData(portNum, newPointsArray) {
             if(portNum === 1) {
                 totalPoints1 += newPointsArray.length;
@@ -409,7 +522,6 @@
             }
         }
 
-        // 每秒统计双通道的 FPS
         setInterval(() => {
             document.getElementById('fps-counter-1').innerText = totalPoints1;
             document.getElementById('fps-counter-2').innerText = totalPoints2;
@@ -421,7 +533,6 @@
             if(portNum === 2) { chartData2[1].fill(0); uplot2.setData(chartData2); }
         }
 
-        // 独立的 Resize 函数，防止隐藏状态下的图表尺寸计算错误
         function resizeChart1() {
             if(document.getElementById('page-uart1').classList.contains('active')) {
                 uplot1.setSize({ width: chartDiv1.clientWidth, height: chartDiv1.clientHeight });
