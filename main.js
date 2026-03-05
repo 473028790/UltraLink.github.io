@@ -5,6 +5,11 @@ let enableWebUSBDebug = false;
 // 🟢 记录当前解析的媒体 URL，用于垃圾回收防泄露
 let currentMediaUrl = null;
 
+// ==========================================
+// 通用延时函数 (核心流控利器)
+// ==========================================
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 function getLogTime() {
   const now = new Date();
   return `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}.${now.getMilliseconds().toString().padStart(3, '0')}`;
@@ -178,7 +183,7 @@ function clearChart(portNum) {
 }
 
 // ==========================================
-// 4. 芯片选择与 DAP 逻辑 (保持不变)
+// 4. 芯片选择与 DAP 逻辑
 // ==========================================
 const chipDatabase = {
   A1SEMI: {
@@ -362,7 +367,6 @@ function switchSysTab(tabId, el) {
 }
 
 function updateSysConfig() {
-  // 处理主题
   let sysConfig = { theme: document.getElementById('sys-theme').value };
   if (sysConfig.theme === 'light') {
     document.documentElement.style.setProperty('--bg', '#f0f2f5');
@@ -374,7 +378,6 @@ function updateSysConfig() {
     document.documentElement.style.setProperty('--text', '#eaeaea');
   }
 
-  // 🟢 处理 WebUSB 开关逻辑
   enableWebUSBDebug = document.getElementById('sys-debug-webusb').checked;
   const webusbCard = document.getElementById('card-webusb');
   if (webusbCard) {
@@ -390,7 +393,7 @@ function updateSysConfig() {
 // ==========================================
 let uplot1, uplot2, uplotPWM, uplotDAC;
 const STATIC_POINTS = 500;
-const TIME_WINDOW_MS = 10;
+const TIME_WINDOW_MS = 15;
 let staticTimeArray = new Float32Array(STATIC_POINTS);
 for (let i = 0; i < STATIC_POINTS; i++) {
   staticTimeArray[i] = (i / (STATIC_POINTS - 1)) * TIME_WINDOW_MS;
@@ -562,6 +565,7 @@ window.scrubFrame = scrubFrame;
 window.updateCurrentFramePreview = updateCurrentFramePreview;
 window.toggleMediaPlay = toggleMediaPlay;
 window.clearWebUSBLogs = clearWebUSBLogs;
+window.syncFps = syncFps;
 
 // ==========================================
 // 9. 图像/视频解析与纯二进制发送逻辑
@@ -569,8 +573,21 @@ window.clearWebUSBLogs = clearWebUSBLogs;
 let mediaFrames = [];
 let currentFrameIdx = 0;
 let isPlayingMedia = false;
-let playInterval = null;
-const FPS = 50;
+
+// 🌟 同步 FPS 滑块与输入框
+function syncFps(source) {
+  let slider = document.getElementById('fps-slider');
+  let numInput = document.getElementById('fps-val');
+  if (source === 'slider') {
+    numInput.value = slider.value;
+  } else if (source === 'num') {
+    let val = parseInt(numInput.value);
+    if (isNaN(val) || val < 1) val = 1;
+    if (val > 60) val = 60; // 限制最高 60帧
+    numInput.value = val;
+    slider.value = val;
+  }
+}
 
 async function handleMediaUpload(event) {
   const file = event.target.files[0];
@@ -578,7 +595,7 @@ async function handleMediaUpload(event) {
 
   const statusEl = document.getElementById('media-status');
 
-  if (isPlayingMedia) toggleMediaPlay();
+  if (isPlayingMedia) isPlayingMedia = false; // 如果在播放，先停止
 
   mediaFrames.length = 0;
   mediaFrames = [];
@@ -648,7 +665,10 @@ function processImage(file) {
       ctx.drawImage(img, 0, 0, 128, 128);
       mediaFrames = [ctx.getImageData(0, 0, 128, 128)];
 
+      // 🌟 图片模式：隐藏视频进度条和帧率控制
       document.getElementById('video-controls').style.display = 'none';
+      document.getElementById('fps-controls').style.display = 'none';
+
       document.getElementById('media-status').innerText = '图片已加载 (1帧)';
       document.getElementById('media-status').style.color = '#00e676';
       updatePlayButtonUI();
@@ -680,6 +700,8 @@ function processVideo(file) {
     statusEl.style.color = '#cc3300';
     if (document.body.contains(video)) document.body.removeChild(video);
   };
+
+  const FPS = 30;
 
   video.onloadeddata = () => {
     statusEl.innerText = '正在精确提取画面...';
@@ -714,7 +736,6 @@ function processVideo(file) {
 
   function finishVideoProcessing() {
     if (document.body.contains(video)) {
-      // 🟢 核心修复1：防止 video.src = "" 触发 error 事件引起弹窗
       video.onerror = null;
       video.src = '';
       document.body.removeChild(video);
@@ -725,7 +746,11 @@ function processVideo(file) {
     const slider = document.getElementById('frame-slider');
     slider.max = mediaFrames.length - 1;
     slider.value = 0;
+
+    // 🌟 视频模式：显示进度条和帧率控制
     document.getElementById('video-controls').style.display = 'flex';
+    document.getElementById('fps-controls').style.display = 'flex';
+
     document.getElementById('frame-counter').innerText =
       `1 / ${mediaFrames.length}`;
     statusEl.innerText = `提取并转换完成 (${mediaFrames.length}帧)`;
@@ -746,7 +771,10 @@ function scrubFrame() {
 function updateCurrentFramePreview() {
   document.getElementById('threshold-val').innerText =
     document.getElementById('threshold-slider').value;
-  if (mediaFrames.length > 0) renderFrameToCanvas(currentFrameIdx);
+  if (mediaFrames.length > 0)
+    renderFrameToCanvas(
+      currentFrameIdx < mediaFrames.length ? currentFrameIdx : 0,
+    );
 }
 
 function renderFrameToCanvas(index) {
@@ -807,56 +835,99 @@ function updatePlayButtonUI() {
   }
 }
 
-function toggleMediaPlay() {
+// ==========================================
+// 🚀 核心修改：真正的“数据流模式”推流逻辑
+// ==========================================
+let isPushingStream = false; // 推流进程锁，防止疯狂点击按钮导致冲突
+
+async function toggleMediaPlay() {
   if (mediaFrames.length === 0) {
     alert('请先上传解析文件！');
     return;
   }
 
-  // 🟢 核心修复2：如果还没开始播放，且没有连接硬件，直接拦截，防止后续死循环
-  if (!isPlayingMedia && !isConnected) {
+  if (!isConnected) {
     alert('请先连接硬件！');
     return;
   }
 
-  isPlayingMedia = !isPlayingMedia;
+  const isVideo = mediaFrames.length > 1;
+
+  // 1. 如果当前正在播放，用户手动点击了“停止”
+  if (isPlayingMedia) {
+    isPlayingMedia = false; // 改变标志位，让底下的 while 循环自然退出
+    updatePlayButtonUI();
+
+    // 如果是视频，手动停止时才发送 Stop 指令
+    if (isVideo) {
+      const stopCmd = new Uint8Array([0x80, 0x00, 0x02, 0x01, 0x7e]);
+      sendCMD('MEDIA_CTRL', stopCmd);
+    }
+    return;
+  }
+
+  // 2. 防抖保护
+  if (isPushingStream) return;
+
+  if (currentFrameIdx >= mediaFrames.length) {
+    currentFrameIdx = 0;
+  }
+
+  isPlayingMedia = true;
+  isPushingStream = true;
   updatePlayButtonUI();
 
-  if (isPlayingMedia) {
-    if (mediaFrames.length === 1) {
-      sendCMD('IMG_FRAME', getFrameBinaryData(0));
+  // 3. 【开始推流前】：只发一次 Start 指令
+  const cmdType = isVideo ? 0x02 : 0x01; // 0x02视频，0x01图片
+  const startCmd = new Uint8Array([0x80, 0x00, cmdType, 0x00, 0x7e]);
+  sendCMD('MEDIA_CTRL', startCmd);
+
+  await sleep(15); // 等待 MCU 清空 rx_offset 和 LCD_GRAM 显存
+
+  // 4. 开始异步推流循环
+  while (isPlayingMedia) {
+    if (!isConnected) {
       isPlayingMedia = false;
-      updatePlayButtonUI();
-      return;
+      alert('设备连接已断开，推流自动停止！');
+      break;
     }
 
-    playInterval = setInterval(() => {
-      // 🟢 核心修复3：播放途中如果设备突然断开，自动停止发送逻辑并恢复 UI
-      if (!isConnected) {
-        if (playInterval) {
-          clearInterval(playInterval);
-          playInterval = null;
-        }
+    const frameBuffer = getFrameBinaryData(currentFrameIdx);
+
+    // 分块发送 2048 字节纯像素数据
+    const chunkSize = 512;
+    for (let i = 0; i < frameBuffer.length; i += chunkSize) {
+      const chunk = frameBuffer.slice(i, i + chunkSize);
+      sendCMD('IMG_FRAME', chunk);
+    }
+
+    // 🌟 动态计算帧率延时 (计算出每个周期的间隔，控制推流速度)
+    let targetFps = parseInt(document.getElementById('fps-val').value);
+    if (isNaN(targetFps) || targetFps <= 0) targetFps = 30;
+
+    // 图片固定给15ms防连击，视频则按照目标FPS严格卡住延时
+    let delayMs = isVideo ? Math.floor(1000 / targetFps) : 15;
+    await sleep(delayMs);
+
+    // 更新网页 UI 进度
+    renderFrameToCanvas(currentFrameIdx);
+    document.getElementById('frame-slider').value = currentFrameIdx;
+    document.getElementById('frame-counter').innerText =
+      `${currentFrameIdx + 1} / ${mediaFrames.length}`;
+
+    // 处理循环帧逻辑
+    currentFrameIdx++;
+    if (currentFrameIdx >= mediaFrames.length) {
+      if (!isVideo) {
+        // 单张图片发完一帧自然停止
         isPlayingMedia = false;
-        updatePlayButtonUI();
-        alert('设备连接已断开，推流自动停止！');
-        return;
+      } else {
+        currentFrameIdx = 0; // 视频循环播放
       }
-
-      sendCMD('IMG_FRAME', getFrameBinaryData(currentFrameIdx));
-      renderFrameToCanvas(currentFrameIdx);
-
-      document.getElementById('frame-slider').value = currentFrameIdx;
-      document.getElementById('frame-counter').innerText =
-        `${currentFrameIdx + 1} / ${mediaFrames.length}`;
-
-      currentFrameIdx++;
-      if (currentFrameIdx >= mediaFrames.length) currentFrameIdx = 0;
-    }, 1000 / FPS);
-  } else {
-    if (playInterval) {
-      clearInterval(playInterval);
-      playInterval = null;
     }
   }
+
+  // 循环彻底结束，释放进程锁，UI 恢复
+  isPushingStream = false;
+  updatePlayButtonUI();
 }
