@@ -97,9 +97,6 @@ self.onmessage = async function (event) {
       try {
         // 直接将主线程传来的 Uint8Array 发送给单片机
         await usbDevice.transferOut(epOut.endpointNumber, msg.payload);
-
-        // 如果想看发送了多少字节，可以取消注释下面这行：
-        // console.log(`[Worker] 发送了 ${msg.payload.byteLength} 字节`);
       } catch (e) {
         self.postMessage({ type: 'ERROR', data: '数据发送失败: ' + e.message });
       }
@@ -115,7 +112,7 @@ async function startReadLoop() {
       const result = await usbDevice.transferIn(epIn.endpointNumber, 512);
 
       if (result.data && result.data.byteLength > 0) {
-        // 【核心修改】：不转字符串！直接提取纯二进制数组 (Uint8Array)
+        // 不转字符串！直接提取纯二进制数组 (Uint8Array)
         const rawBuffer = new Uint8Array(
           result.data.buffer,
           result.data.byteOffset,
