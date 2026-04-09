@@ -194,7 +194,7 @@
 
         // 解析负载并更新网页
         function parsePayload(payload) {
-            const parseU16 = (index) => payload[index] | (payload[index + 1] << 8);
+            const parseU16 = (index) => (payload[index] << 8) | payload[index + 1];
 
             document.getElementById('val_width').innerText = parseU16(0);
             document.getElementById('val_state').innerText = parseU16(2);
