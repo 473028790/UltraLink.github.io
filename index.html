@@ -97,7 +97,7 @@
             if ('serial' in navigator) {
                 try {
                     port = await navigator.serial.requestPort();
-                    await port.open({ baudRate: 115200 }); // 根据实际波特率修改
+                    await port.open({ baudRate: 9600 }); // 根据实际波特率修改
                     
                     // 更新 UI 状态
                     statusEl.textContent = '🟢 已连接设备，正在接收数据...';
