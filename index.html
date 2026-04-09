@@ -3,166 +3,187 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>雷达信号多端同步工具</title>
-    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <title>雷达底层信号监控 (本地实时版)</title>
     <style>
-        body { font-family: -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f0f2f5; margin: 0; padding: 20px; color: #1a1a1a; }
-        .container { max-width: 800px; margin: 0 auto; }
-        header { text-align: center; margin-bottom: 30px; }
-        .role-selector { background: white; padding: 15px; border-radius: 12px; display: flex; gap: 10px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
-        .role-btn { flex: 1; padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px; background: white; cursor: pointer; font-weight: bold; transition: 0.3s; }
-        .role-btn.active { border-color: #007aff; background: #eef6ff; color: #007aff; }
+        body { font-family: -apple-system, system-ui, "Segoe UI", Roboto, sans-serif; background: #f0f2f5; margin: 0; padding: 20px; color: #333; }
+        .container { max-width: 900px; margin: 0 auto; }
+        h2 { text-align: center; color: #2c3e50; margin-bottom: 20px; }
         
-        .panel { background: white; padding: 20px; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); display: none; }
-        .panel.active { display: block; }
+        .controls { display: flex; justify-content: center; gap: 15px; margin-bottom: 20px; }
+        button { border: none; padding: 12px 24px; font-size: 16px; border-radius: 8px; cursor: pointer; transition: all 0.2s; color: white; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        button:disabled { background-color: #bdc3c7 !important; cursor: not-allowed; transform: none !important; box-shadow: none; color: #ecf0f1; }
         
-        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 15px; }
-        .card { background: #f8f9fa; padding: 15px; border-radius: 12px; text-align: center; border: 1px solid #eee; }
-        .card-label { font-size: 12px; color: #666; margin-bottom: 8px; display: block; }
-        .card-value { font-size: 24px; font-weight: 700; color: #007aff; font-family: "SF Mono", Monaco, Consolas, monospace; }
+        #btn-connect { background-color: #27ae60; }
+        #btn-connect:hover:not(:disabled) { background-color: #2ecc71; transform: translateY(-1px); }
+        #btn-disconnect { background-color: #c0392b; }
+        #btn-disconnect:hover:not(:disabled) { background-color: #e74c3c; transform: translateY(-1px); }
         
-        .status-bar { margin-top: 20px; font-size: 13px; text-align: center; padding: 8px; border-radius: 20px; background: #eee; }
-        .online { color: #34c759; }
-        .offline { color: #ff3b30; }
+        .status { text-align: center; margin-bottom: 30px; font-weight: bold; color: #7f8c8d; font-size: 14px; padding: 10px; border-radius: 6px; background: white; border: 1px solid #ddd; }
+        .status.connected { color: #27ae60; border-color: #27ae60; background: #eafaf1; }
         
-        button#serial-btn { width: 100%; padding: 15px; background: #007aff; color: white; border: none; border-radius: 10px; font-size: 16px; font-weight: bold; cursor: pointer; margin-bottom: 20px; }
-        button#serial-btn:disabled { background: #ccc; }
+        .dashboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; }
+        .card { background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); text-align: center; border: 1px solid #eee; }
+        .card-title { font-size: 13px; color: #7f8c8d; margin-bottom: 8px; font-weight: bold; }
+        .card-value { font-size: 32px; color: #007aff; font-weight: bold; font-family: "SF Mono", Consolas, monospace; }
+        .card-desc { font-size: 11px; color: #a4b0be; margin-top: 8px; }
+        
+        /* 特殊卡片高亮 */
+        .card.highlight { border-color: #007aff; border-width: 2px; }
+        .card.total { background-color: #f8f9fa; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <header>
-        <h2>📡 雷达信号远程同步</h2>
-        <div id="sync-id-display" style="font-size: 12px; color: #999;"></div>
-    </header>
-
-    <div class="role-selector">
-        <button class="role-btn active" onclick="setRole('master')">💻 我是电脑(发送端)</button>
-        <button class="role-btn" onclick="setRole('viewer')">📱 我是手机(查看端)</button>
+    <h2>📡 雷达底层信号实时监控</h2>
+    
+    <div class="controls">
+        <button id="btn-connect">🟢 连接串口 (9600)</button>
+        <button id="btn-disconnect" disabled>🔴 断开连接</button>
     </div>
+    
+    <div id="connection-status" class="status">等待连接... (请使用 Chrome 或 Edge 浏览器打开)</div>
 
-    <div id="master-panel" class="panel active">
-        <button id="serial-btn">🔌 连接并启动串口 (9600bps)</button>
-        <div class="status-bar" id="master-status">等待操作...</div>
-    </div>
-
-    <div id="data-panel" class="panel active" style="display: block; margin-top: 20px;">
-        <div class="grid">
-            <div class="card"><span class="card-label">脉宽 (ms)</span><div class="card-value" id="v-width">0</div></div>
-            <div class="card"><span class="card-label">状态</span><div class="card-value" id="v-state">0</div></div>
-            <div class="card"><span class="card-label">远距 (31ms)</span><div class="card-value" id="v-31">0</div></div>
-            <div class="card"><span class="card-label">靠近 (62ms)</span><div class="card-value" id="v-62">0</div></div>
-            <div class="card"><span class="card-label">存在 (124ms)</span><div class="card-value" id="v-124">0</div></div>
-            <div class="card"><span class="card-label">远离 (192ms)</span><div class="card-value" id="v-192">0</div></div>
-            <div class="card"><span class="card-label">未知</span><div class="card-value" id="v-unk">0</div></div>
-            <div class="card" style="background: #eef6ff;"><span class="card-label">总计</span><div class="card-value" id="v-total">0</div></div>
+    <div class="dashboard">
+        <div class="card">
+            <div class="card-title">最近一次脉宽 (ms)</div>
+            <div class="card-value" id="val_width">0</div>
+            <div class="card-desc">g_radar_low_level_width_ms</div>
+        </div>
+        <div class="card highlight">
+            <div class="card-title">当前识别状态</div>
+            <div class="card-value" id="val_state">0</div>
+            <div class="card-desc">g_radar_signal_state</div>
+        </div>
+        <div class="card">
+            <div class="card-title">远距活动 (31ms)</div>
+            <div class="card-value" id="val_31ms">0</div>
+            <div class="card-desc">g_radar_signal_count[1]</div>
+        </div>
+        <div class="card">
+            <div class="card-title">靠近信号 (62ms)</div>
+            <div class="card-value" id="val_62ms">0</div>
+            <div class="card-desc">g_radar_signal_count[2]</div>
+        </div>
+        <div class="card">
+            <div class="card-title">存在信号 (124ms)</div>
+            <div class="card-value" id="val_124ms">0</div>
+            <div class="card-desc">g_radar_signal_count[3]</div>
+        </div>
+        <div class="card">
+            <div class="card-title">远离信号 (192ms)</div>
+            <div class="card-value" id="val_192ms">0</div>
+            <div class="card-desc">g_radar_signal_count[4]</div>
+        </div>
+        <div class="card">
+            <div class="card-title">未知脉冲</div>
+            <div class="card-value" id="val_unknown">0</div>
+            <div class="card-desc">g_radar_unknown_count</div>
+        </div>
+        <div class="card total">
+            <div class="card-title">总脉冲次数</div>
+            <div class="card-value" style="color: #2c3e50;" id="val_total">0</div>
+            <div class="card-desc">g_radar_total_pulse_count</div>
         </div>
     </div>
 </div>
 
 <script>
-    // --- 配置区 ---
-    // 为了防止别人看到你的数据，你可以手动改这个字符串
-    const SYNC_ID = "RADAR_USER_4730"; 
-    const MQTT_TOPIC = `radar/sync/${SYNC_ID}`;
-    const BROKER = "wss://broker.emqx.io:8084/mqtt"; // 公共 WebSocket Broker
-
-    let mqttClient;
-    let serialPort;
+    let port;
     let reader;
     let keepReading = false;
     let receiveBuffer = new Uint8Array(0);
-    const FRAME_LENGTH = 18;
+    const FRAME_LENGTH = 18; 
 
-    document.getElementById('sync-id-display').innerText = `同步频道: ${SYNC_ID}`;
+    const btnConnect = document.getElementById('btn-connect');
+    const btnDisconnect = document.getElementById('btn-disconnect');
+    const statusEl = document.getElementById('connection-status');
 
-    // --- MQTT 初始化 ---
-    function initMQTT() {
-        mqttClient = mqtt.connect(BROKER);
-        mqttClient.on('connect', () => {
-            console.log("MQTT 已连接");
-            if (currentRole === 'viewer') {
-                mqttClient.subscribe(MQTT_TOPIC);
-                document.getElementById('master-status').innerHTML = "🟢 已连接同步网络，接收中...";
-            }
-        });
-        mqttClient.on('message', (topic, message) => {
-            if (topic === MQTT_TOPIC) {
-                updateUI(JSON.parse(message.toString()));
-            }
-        });
-    }
-
-    // --- 角色切换 ---
-    let currentRole = 'master';
-    function setRole(role) {
-        currentRole = role;
-        document.querySelectorAll('.role-btn').forEach(b => b.classList.remove('active'));
-        event.target.classList.add('active');
-        
-        if (role === 'master') {
-            document.getElementById('master-panel').style.display = 'block';
-            mqttClient && mqttClient.unsubscribe(MQTT_TOPIC);
-        } else {
-            document.getElementById('master-panel').style.display = 'none';
-            mqttClient && mqttClient.subscribe(MQTT_TOPIC);
-            document.getElementById('master-status').innerText = "📱 手机模式：等待电脑发送...";
+    // --- 连接逻辑 ---
+    btnConnect.addEventListener('click', async () => {
+        if (!('serial' in navigator)) {
+            alert('当前浏览器不支持 Web Serial API，请使用 Chrome 或 Edge 浏览器，并通过 localhost 或 127.0.0.1 访问。');
+            return;
         }
-    }
-
-    // --- 串口逻辑 (仅 Master) ---
-    document.getElementById('serial-btn').addEventListener('click', async () => {
+        
         try {
-            serialPort = await navigator.serial.requestPort();
-            await serialPort.open({ baudRate: 9600 });
+            port = await navigator.serial.requestPort();
+            await port.open({ baudRate: 9600 }); // 你指定的 9600 波特率
+            
+            statusEl.textContent = '🟢 串口已连接，数据高速读取中...';
+            statusEl.className = 'status connected';
+            btnConnect.disabled = true;
+            btnDisconnect.disabled = false;
+
             keepReading = true;
-            document.getElementById('serial-btn').disabled = true;
-            document.getElementById('master-status').innerHTML = "🟢 串口已开启，数据同步中...";
             readLoop();
-        } catch (e) {
-            alert("连接失败，请确保使用 Chrome/Edge 并授予权限");
+        } catch (err) {
+            console.error('连接被取消或发生错误:', err);
+            statusEl.textContent = '🔴 连接失败，请检查设备是否被其他软件占用';
+            statusEl.className = 'status';
         }
     });
 
+    // --- 断开逻辑 ---
+    btnDisconnect.addEventListener('click', async () => {
+        keepReading = false;
+        if (reader) {
+            await reader.cancel(); 
+        }
+    });
+
+    // --- 读取循环 ---
     async function readLoop() {
-        while (serialPort.readable && keepReading) {
-            reader = serialPort.readable.getReader();
+        while (port.readable && keepReading) {
+            reader = port.readable.getReader();
             try {
                 while (true) {
                     const { value, done } = await reader.read();
                     if (done) break;
-                    let temp = new Uint8Array(receiveBuffer.length + value.length);
-                    temp.set(receiveBuffer); temp.set(value, receiveBuffer.length);
-                    receiveBuffer = temp;
-                    processBuffer();
+                    if (value) {
+                        let tempBuffer = new Uint8Array(receiveBuffer.length + value.length);
+                        tempBuffer.set(receiveBuffer);
+                        tempBuffer.set(value, receiveBuffer.length);
+                        receiveBuffer = tempBuffer;
+                        processBuffer();
+                    }
                 }
-            } finally { reader.releaseLock(); }
+            } catch (error) {
+                console.error('读取流出错:', error);
+            } finally {
+                reader.releaseLock();
+            }
         }
+
+        if (port) {
+            await port.close();
+            port = null;
+        }
+
+        statusEl.textContent = '⚪ 已断开连接';
+        statusEl.className = 'status';
+        btnConnect.disabled = false;
+        btnDisconnect.disabled = true;
+        receiveBuffer = new Uint8Array(0);
     }
 
+    // --- 数据帧寻找 ---
     function processBuffer() {
         while (true) {
-            let idx = receiveBuffer.indexOf(0x80);
-            if (idx === -1) { receiveBuffer = new Uint8Array(0); break; }
-            if (idx > 0) receiveBuffer = receiveBuffer.slice(idx);
-            if (receiveBuffer.length < FRAME_LENGTH) break;
-            
+            let headerIndex = receiveBuffer.indexOf(0x80);
+            if (headerIndex === -1) {
+                receiveBuffer = new Uint8Array(0);
+                break;
+            }
+            if (headerIndex > 0) {
+                receiveBuffer = receiveBuffer.slice(headerIndex);
+            }
+            if (receiveBuffer.length < FRAME_LENGTH) {
+                break;
+            }
             if (receiveBuffer[FRAME_LENGTH - 1] === 0x7E) {
                 const payload = receiveBuffer.slice(1, FRAME_LENGTH - 1);
-                // 大端模式解析 (Big-Endian)
-                const parseU16 = (i) => (payload[i] << 8) | payload[i+1];
-                const data = {
-                    w: parseU16(0), s: parseU16(2), c31: parseU16(4), 
-                    c62: parseU16(6), c124: parseU16(8), c192: parseU16(10), 
-                    unk: parseU16(12), t: parseU16(14)
-                };
-                
-                // 1. 更新本地 UI
-                updateUI(data);
-                // 2. 通过网络同步给手机
-                mqttClient && mqttClient.publish(MQTT_TOPIC, JSON.stringify(data));
-                
+                parsePayload(payload);
                 receiveBuffer = receiveBuffer.slice(FRAME_LENGTH);
             } else {
                 receiveBuffer = receiveBuffer.slice(1);
@@ -170,18 +191,20 @@
         }
     }
 
-    function updateUI(d) {
-        document.getElementById('v-width').innerText = d.w;
-        document.getElementById('v-state').innerText = d.s;
-        document.getElementById('v-31').innerText = d.c31;
-        document.getElementById('v-62').innerText = d.c62;
-        document.getElementById('v-124').innerText = d.c124;
-        document.getElementById('v-192').innerText = d.c192;
-        document.getElementById('v-unk').innerText = d.unk;
-        document.getElementById('v-total').innerText = d.t;
-    }
+    // --- 数据解析 (大端模式 Big-Endian) ---
+    function parsePayload(payload) {
+        // 大端模式：高字节在前，低字节在后 (左移 8 位的是前一个字节)
+        const parseU16 = (index) => (payload[index] << 8) | payload[index + 1];
 
-    initMQTT();
+        document.getElementById('val_width').innerText = parseU16(0);
+        document.getElementById('val_state').innerText = parseU16(2);
+        document.getElementById('val_31ms').innerText = parseU16(4);
+        document.getElementById('val_62ms').innerText = parseU16(6);
+        document.getElementById('val_124ms').innerText = parseU16(8);
+        document.getElementById('val_192ms').innerText = parseU16(10);
+        document.getElementById('val_unknown').innerText = parseU16(12);
+        document.getElementById('val_total').innerText = parseU16(14);
+    }
 </script>
 </body>
 </html>
