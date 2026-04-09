@@ -3,20 +3,26 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>雷达底层信号监控 (本地实时版)</title>
+    <title>雷达底层信号监控 (本地双向版)</title>
     <style>
         body { font-family: -apple-system, system-ui, "Segoe UI", Roboto, sans-serif; background: #f0f2f5; margin: 0; padding: 20px; color: #333; }
         .container { max-width: 900px; margin: 0 auto; }
         h2 { text-align: center; color: #2c3e50; margin-bottom: 20px; }
         
-        .controls { display: flex; justify-content: center; gap: 15px; margin-bottom: 20px; }
+        .controls { display: flex; justify-content: center; gap: 15px; margin-bottom: 20px; flex-wrap: wrap; }
         button { border: none; padding: 12px 24px; font-size: 16px; border-radius: 8px; cursor: pointer; transition: all 0.2s; color: white; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         button:disabled { background-color: #bdc3c7 !important; cursor: not-allowed; transform: none !important; box-shadow: none; color: #ecf0f1; }
         
+        /* 按钮颜色配置 */
         #btn-connect { background-color: #27ae60; }
         #btn-connect:hover:not(:disabled) { background-color: #2ecc71; transform: translateY(-1px); }
+        
         #btn-disconnect { background-color: #c0392b; }
         #btn-disconnect:hover:not(:disabled) { background-color: #e74c3c; transform: translateY(-1px); }
+        
+        /* 新增清空按钮样式：橘黄色 */
+        #btn-clear { background-color: #e67e22; }
+        #btn-clear:hover:not(:disabled) { background-color: #f39c12; transform: translateY(-1px); }
         
         .status { text-align: center; margin-bottom: 30px; font-weight: bold; color: #7f8c8d; font-size: 14px; padding: 10px; border-radius: 6px; background: white; border: 1px solid #ddd; }
         .status.connected { color: #27ae60; border-color: #27ae60; background: #eafaf1; }
@@ -27,7 +33,6 @@
         .card-value { font-size: 32px; color: #007aff; font-weight: bold; font-family: "SF Mono", Consolas, monospace; }
         .card-desc { font-size: 11px; color: #a4b0be; margin-top: 8px; }
         
-        /* 特殊卡片高亮 */
         .card.highlight { border-color: #007aff; border-width: 2px; }
         .card.total { background-color: #f8f9fa; }
     </style>
@@ -40,9 +45,10 @@
     <div class="controls">
         <button id="btn-connect">🟢 连接串口 (9600)</button>
         <button id="btn-disconnect" disabled>🔴 断开连接</button>
+        <button id="btn-clear" disabled>🧹 清空单片机数据</button>
     </div>
     
-    <div id="connection-status" class="status">等待连接... (请使用 Chrome 或 Edge 浏览器打开)</div>
+    <div id="connection-status" class="status">等待连接... (请使用 Chrome 或 Edge 浏览器)</div>
 
     <div class="dashboard">
         <div class="card">
@@ -97,34 +103,66 @@
 
     const btnConnect = document.getElementById('btn-connect');
     const btnDisconnect = document.getElementById('btn-disconnect');
+    const btnClear = document.getElementById('btn-clear');
     const statusEl = document.getElementById('connection-status');
 
-    // --- 连接逻辑 ---
+    // --- 1. 连接串口逻辑 ---
     btnConnect.addEventListener('click', async () => {
         if (!('serial' in navigator)) {
-            alert('当前浏览器不支持 Web Serial API，请使用 Chrome 或 Edge 浏览器，并通过 localhost 或 127.0.0.1 访问。');
+            alert('当前浏览器不支持 Web Serial API。');
             return;
         }
         
         try {
             port = await navigator.serial.requestPort();
-            await port.open({ baudRate: 9600 }); // 你指定的 9600 波特率
+            await port.open({ baudRate: 9600 }); 
             
-            statusEl.textContent = '🟢 串口已连接，数据高速读取中...';
+            statusEl.textContent = '🟢 串口已连接，双向通信已就绪';
             statusEl.className = 'status connected';
+            
+            // 按钮状态切换
             btnConnect.disabled = true;
             btnDisconnect.disabled = false;
+            btnClear.disabled = false; // 连上后，允许点击清空按钮
 
             keepReading = true;
             readLoop();
         } catch (err) {
-            console.error('连接被取消或发生错误:', err);
-            statusEl.textContent = '🔴 连接失败，请检查设备是否被其他软件占用';
-            statusEl.className = 'status';
+            console.error('连接失败:', err);
+            statusEl.textContent = '🔴 连接失败，请检查端口是否被占用';
         }
     });
 
-    // --- 断开逻辑 ---
+    // --- 2. 下发数据逻辑 (新增: 发送 0x81 0x01 0x7F) ---
+    btnClear.addEventListener('click', async () => {
+        // 检查串口对象是否存在且可写
+        if (port && port.writable) {
+            try {
+                // 获取发送写入流的锁
+                const writer = port.writable.getWriter();
+                // 构造要发送的指令字节
+                const command = new Uint8Array([0x81, 0x01, 0x7F]);
+                
+                // 将指令写入串口
+                await writer.write(command);
+                // 用完必须释放锁，否则下次发不出，也可能影响读取
+                writer.releaseLock();
+                
+                // 简单给个状态提示
+                const oldText = statusEl.textContent;
+                statusEl.textContent = '⚡ 清空指令已发送！';
+                setTimeout(() => { 
+                    if (keepReading) statusEl.textContent = oldText; 
+                }, 1500);
+
+            } catch (err) {
+                console.error('下发指令失败:', err);
+                alert('发送失败，请检查串口状态');
+            }
+        }
+    });
+
+    // --- 3. 断开连接逻辑 ---
     btnDisconnect.addEventListener('click', async () => {
         keepReading = false;
         if (reader) {
@@ -132,7 +170,7 @@
         }
     });
 
-    // --- 读取循环 ---
+    // --- 4. 循环读取与解析逻辑 (保持不变) ---
     async function readLoop() {
         while (port.readable && keepReading) {
             reader = port.readable.getReader();
@@ -162,12 +200,16 @@
 
         statusEl.textContent = '⚪ 已断开连接';
         statusEl.className = 'status';
+        
+        // 恢复按钮初始状态
         btnConnect.disabled = false;
         btnDisconnect.disabled = true;
+        btnClear.disabled = true; 
+        
         receiveBuffer = new Uint8Array(0);
+        resetUI();
     }
 
-    // --- 数据帧寻找 ---
     function processBuffer() {
         while (true) {
             let headerIndex = receiveBuffer.indexOf(0x80);
@@ -178,9 +220,8 @@
             if (headerIndex > 0) {
                 receiveBuffer = receiveBuffer.slice(headerIndex);
             }
-            if (receiveBuffer.length < FRAME_LENGTH) {
-                break;
-            }
+            if (receiveBuffer.length < FRAME_LENGTH) break;
+            
             if (receiveBuffer[FRAME_LENGTH - 1] === 0x7E) {
                 const payload = receiveBuffer.slice(1, FRAME_LENGTH - 1);
                 parsePayload(payload);
@@ -191,9 +232,8 @@
         }
     }
 
-    // --- 数据解析 (大端模式 Big-Endian) ---
+    // 大端模式解析
     function parsePayload(payload) {
-        // 大端模式：高字节在前，低字节在后 (左移 8 位的是前一个字节)
         const parseU16 = (index) => (payload[index] << 8) | payload[index + 1];
 
         document.getElementById('val_width').innerText = parseU16(0);
@@ -204,6 +244,11 @@
         document.getElementById('val_192ms').innerText = parseU16(10);
         document.getElementById('val_unknown').innerText = parseU16(12);
         document.getElementById('val_total').innerText = parseU16(14);
+    }
+
+    function resetUI() {
+        const ids = ['val_width', 'val_state', 'val_31ms', 'val_62ms', 'val_124ms', 'val_192ms', 'val_unknown', 'val_total'];
+        ids.forEach(id => document.getElementById(id).innerText = '0');
     }
 </script>
 </body>
