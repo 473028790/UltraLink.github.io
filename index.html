@@ -2,22 +2,29 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>雷达底层信号监控系统 (纯前端本地版)</title>
+    <title>雷达底层信号监控系统 (本地版)</title>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7f6; margin: 0; padding: 20px; color: #333; }
         h2 { text-align: center; color: #2c3e50; }
-        .controls { text-align: center; margin-bottom: 20px; }
-        button { background-color: #2980b9; color: white; border: none; padding: 10px 20px; font-size: 16px; border-radius: 5px; cursor: pointer; transition: background 0.3s; }
-        button:hover { background-color: #3498db; }
-        button:disabled { background-color: #95a5a6; cursor: not-allowed; }
+        .controls { text-align: center; margin-bottom: 20px; display: flex; justify-content: center; gap: 15px; }
+        
+        button { border: none; padding: 10px 20px; font-size: 16px; border-radius: 5px; cursor: pointer; transition: background 0.3s; color: white; font-weight: bold; }
+        button:disabled { background-color: #bdc3c7 !important; cursor: not-allowed; color: #7f8c8d; }
+        
+        /* 按钮颜色区分 */
+        #btn-connect { background-color: #2980b9; }
+        #btn-connect:hover:not(:disabled) { background-color: #3498db; }
+        #btn-disconnect { background-color: #c0392b; }
+        #btn-disconnect:hover:not(:disabled) { background-color: #e74c3c; }
         
         .dashboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; max-width: 1000px; margin: 0 auto; }
         .card { background: #fff; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center; transition: transform 0.2s; }
         .card-title { font-size: 14px; color: #7f8c8d; margin-bottom: 10px; font-weight: bold; }
         .card-value { font-size: 32px; color: #2980b9; font-weight: bold; font-family: monospace; }
         .card-desc { font-size: 12px; color: #95a5a6; margin-top: 5px; }
-        .status { text-align: center; margin-bottom: 20px; font-weight: bold; color: #e74c3c; }
+        .status { text-align: center; margin-bottom: 20px; font-weight: bold; color: #7f8c8d; }
         .status.connected { color: #27ae60; }
+        .status.disconnected { color: #e74c3c; }
     </style>
 </head>
 <body>
@@ -25,7 +32,8 @@
     <h2>雷达底层信号实时监控</h2>
     
     <div class="controls">
-        <button id="btn-connect">连接串口设备</button>
+        <button id="btn-connect">🟢 连接串口设备</button>
+        <button id="btn-disconnect" disabled>🔴 断开连接</button>
     </div>
     <div id="connection-status" class="status">未连接串口</div>
 
@@ -75,41 +83,50 @@
     <script>
         let port;
         let reader;
-        let keepReading = true;
+        let keepReading = false;
         
-        // 缓存区，用于处理串口粘包/半包问题
         let receiveBuffer = new Uint8Array(0);
-        // 帧长：帧头(1) + 8个变量*2字节(16) + 帧尾(1) = 18字节
         const FRAME_LENGTH = 18; 
 
         const btnConnect = document.getElementById('btn-connect');
+        const btnDisconnect = document.getElementById('btn-disconnect');
         const statusEl = document.getElementById('connection-status');
 
+        // 连接按钮逻辑
         btnConnect.addEventListener('click', async () => {
             if ('serial' in navigator) {
                 try {
-                    // 1. 请求用户选择串口
                     port = await navigator.serial.requestPort();
+                    await port.open({ baudRate: 115200 }); // 根据实际波特率修改
                     
-                    // 2. 打开串口 (波特率请根据单片机实际配置修改)
-                    await port.open({ baudRate: 115200 });
-                    
+                    // 更新 UI 状态
                     statusEl.textContent = '🟢 已连接设备，正在接收数据...';
-                    statusEl.classList.add('connected');
+                    statusEl.className = 'status connected';
                     btnConnect.disabled = true;
+                    btnDisconnect.disabled = false;
 
-                    // 3. 开始读取循环
                     keepReading = true;
                     readLoop();
                 } catch (err) {
                     console.error('打开串口失败:', err);
                     statusEl.textContent = '🔴 连接失败或被取消';
+                    statusEl.className = 'status disconnected';
                 }
             } else {
                 alert('当前浏览器不支持 Web Serial API，请使用最新版 Chrome 或 Edge 浏览器。');
             }
         });
 
+        // 断开按钮逻辑
+        btnDisconnect.addEventListener('click', async () => {
+            keepReading = false; // 停止大循环
+            if (reader) {
+                // 取消当前的读取任务，这会让 reader.read() 立即返回 done: true
+                await reader.cancel(); 
+            }
+        });
+
+        // 核心读取循环
         async function readLoop() {
             while (port.readable && keepReading) {
                 reader = port.readable.getReader();
@@ -117,95 +134,88 @@
                     while (true) {
                         const { value, done } = await reader.read();
                         if (done) {
-                            reader.releaseLock();
+                            // 当 reader.cancel() 被调用时，会跳出这里
                             break;
                         }
                         if (value) {
-                            // 将新收到的 Uint8Array 数据拼接到缓存区
                             let tempBuffer = new Uint8Array(receiveBuffer.length + value.length);
                             tempBuffer.set(receiveBuffer);
                             tempBuffer.set(value, receiveBuffer.length);
                             receiveBuffer = tempBuffer;
-
-                            // 处理缓存区里的数据
                             processBuffer();
                         }
                     }
                 } catch (error) {
                     console.error('读取出错:', error);
-                    statusEl.textContent = '🔴 读取硬件数据出错';
-                    statusEl.classList.remove('connected');
                 } finally {
+                    // 无论如何，一定要释放读取锁
                     reader.releaseLock();
                 }
             }
+
+            // 大循环结束，彻底关闭串口
+            if (port) {
+                await port.close();
+                port = null;
+            }
+
+            // 恢复 UI 状态
+            statusEl.textContent = '⚪ 已断开连接';
+            statusEl.className = 'status';
+            btnConnect.disabled = false;
+            btnDisconnect.disabled = true;
+            receiveBuffer = new Uint8Array(0); // 清空缓存区
+            resetUI(); // 清零面板数据
         }
 
-        // 解析字节流，寻找帧头 0x80 和 帧尾 0x7E
+        // 解析缓存区
         function processBuffer() {
             while (true) {
-                // 找帧头
                 let headerIndex = receiveBuffer.indexOf(0x80);
-                
                 if (headerIndex === -1) {
-                    // 没找到帧头，清空缓存
                     receiveBuffer = new Uint8Array(0);
                     break;
                 }
-
-                // 将无用数据丢弃，把 0x80 移到 buffer 头部
                 if (headerIndex > 0) {
                     receiveBuffer = receiveBuffer.slice(headerIndex);
                 }
-
-                // 数据长度还不够一帧，等待接收更多数据
                 if (receiveBuffer.length < FRAME_LENGTH) {
                     break;
                 }
-
-                // 校验帧尾是否为 0x7E
                 if (receiveBuffer[FRAME_LENGTH - 1] === 0x7E) {
-                    // 提取中间的 16 字节有效数据
                     const payload = receiveBuffer.slice(1, FRAME_LENGTH - 1);
                     parsePayload(payload);
-                    
-                    // 将已处理的数据从缓存中截掉
                     receiveBuffer = receiveBuffer.slice(FRAME_LENGTH);
                 } else {
-                    // 帧尾不对，说明这是一个假帧头，丢弃当前的 0x80，继续往下找
                     receiveBuffer = receiveBuffer.slice(1);
                 }
             }
         }
 
-        // 解析 16 字节的有效负载
+        // 解析负载并更新网页
         function parsePayload(payload) {
-            // 将 2个 U8 组合成 1个 U16 (假设单片机是小端模式 Little-Endian：低字节在前)
-            // 如果单片机是大端模式，需改为: payload[i] << 8 | payload[i+1]
-            const parseU16 = (index) => {
-                return payload[index] | (payload[index + 1] << 8);
-            };
+            const parseU16 = (index) => payload[index] | (payload[index + 1] << 8);
 
-            const data = {
-                width:    parseU16(0),
-                state:    parseU16(2),
-                count_31: parseU16(4),
-                count_62: parseU16(6),
-                count_124:parseU16(8),
-                count_192:parseU16(10),
-                unknown:  parseU16(12),
-                total:    parseU16(14)
-            };
+            document.getElementById('val_width').innerText = parseU16(0);
+            document.getElementById('val_state').innerText = parseU16(2);
+            document.getElementById('val_31ms').innerText = parseU16(4);
+            document.getElementById('val_62ms').innerText = parseU16(6);
+            document.getElementById('val_124ms').innerText = parseU16(8);
+            document.getElementById('val_192ms').innerText = parseU16(10);
+            document.getElementById('val_unknown').innerText = parseU16(12);
+            document.getElementById('val_total').innerText = parseU16(14);
+        }
 
-            // 更新到网页 UI 上
-            document.getElementById('val_width').innerText = data.width;
-            document.getElementById('val_state').innerText = data.state;
-            document.getElementById('val_31ms').innerText = data.count_31;
-            document.getElementById('val_62ms').innerText = data.count_62;
-            document.getElementById('val_124ms').innerText = data.count_124;
-            document.getElementById('val_192ms').innerText = data.count_192;
-            document.getElementById('val_unknown').innerText = data.unknown;
-            document.getElementById('val_total').innerText = data.total;
+        // 还原面板数据为 0
+        function resetUI() {
+            document.getElementById('val_width').innerText = '0';
+            document.getElementById('val_state').innerText = '0';
+            document.getElementById('val_31ms').innerText = '0';
+            document.getElementById('val_62ms').innerText = '0';
+            document.getElementById('val_124ms').innerText = '0';
+            document.getElementById('val_192ms').innerText = '0';
+            document.getElementById('val_unknown').innerText = '0';
+            document.getElementById('val_total').innerText = '0';
         }
     </script>
 </body>
