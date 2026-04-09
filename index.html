@@ -3,26 +3,29 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>雷达底层信号监控 (本地双向版)</title>
+    <title>雷达底层信号监控 (控制增强版)</title>
     <style>
         body { font-family: -apple-system, system-ui, "Segoe UI", Roboto, sans-serif; background: #f0f2f5; margin: 0; padding: 20px; color: #333; }
         .container { max-width: 900px; margin: 0 auto; }
         h2 { text-align: center; color: #2c3e50; margin-bottom: 20px; }
         
-        .controls { display: flex; justify-content: center; gap: 15px; margin-bottom: 20px; flex-wrap: wrap; }
-        button { border: none; padding: 12px 24px; font-size: 16px; border-radius: 8px; cursor: pointer; transition: all 0.2s; color: white; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .controls { display: flex; justify-content: center; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+        button { border: none; padding: 10px 18px; font-size: 15px; border-radius: 8px; cursor: pointer; transition: all 0.2s; color: white; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         button:disabled { background-color: #bdc3c7 !important; cursor: not-allowed; transform: none !important; box-shadow: none; color: #ecf0f1; }
         
-        /* 按钮颜色配置 */
+        /* 基础操作按钮 */
         #btn-connect { background-color: #27ae60; }
         #btn-connect:hover:not(:disabled) { background-color: #2ecc71; transform: translateY(-1px); }
-        
         #btn-disconnect { background-color: #c0392b; }
         #btn-disconnect:hover:not(:disabled) { background-color: #e74c3c; transform: translateY(-1px); }
         
-        /* 新增清空按钮样式：橘黄色 */
+        /* 清除按钮 */
         #btn-clear { background-color: #e67e22; }
         #btn-clear:hover:not(:disabled) { background-color: #f39c12; transform: translateY(-1px); }
+        
+        /* 协议切换按钮 (紫色系) */
+        .btn-proto { background-color: #8e44ad; }
+        .btn-proto:hover:not(:disabled) { background-color: #9b59b6; transform: translateY(-1px); }
         
         .status { text-align: center; margin-bottom: 30px; font-weight: bold; color: #7f8c8d; font-size: 14px; padding: 10px; border-radius: 6px; background: white; border: 1px solid #ddd; }
         .status.connected { color: #27ae60; border-color: #27ae60; background: #eafaf1; }
@@ -43,12 +46,14 @@
     <h2>📡 雷达底层信号实时监控</h2>
     
     <div class="controls">
-        <button id="btn-connect">🟢 连接串口 (9600)</button>
-        <button id="btn-disconnect" disabled>🔴 断开连接</button>
-        <button id="btn-clear" disabled>🧹 清空单片机数据</button>
+        <button id="btn-connect">🟢 连接串口</button>
+        <button id="btn-disconnect" disabled>🔴 断开</button>
+        <button id="btn-clear" disabled>🧹 清空数据</button>
+        <button id="btn-proto-io" class="btn-proto" disabled>🔄 切换 IO 协议</button>
+        <button id="btn-proto-dual" class="btn-proto" disabled>🔄 切换双串口协议</button>
     </div>
     
-    <div id="connection-status" class="status">等待连接... (请使用 Chrome 或 Edge 浏览器)</div>
+    <div id="connection-status" class="status">等待连接...</div>
 
     <div class="dashboard">
         <div class="card">
@@ -101,18 +106,60 @@
     let receiveBuffer = new Uint8Array(0);
     const FRAME_LENGTH = 18; 
 
+    // 获取按钮元素
     const btnConnect = document.getElementById('btn-connect');
     const btnDisconnect = document.getElementById('btn-disconnect');
     const btnClear = document.getElementById('btn-clear');
+    const btnProtoIO = document.getElementById('btn-proto-io');
+    const btnProtoDual = document.getElementById('btn-proto-dual');
     const statusEl = document.getElementById('connection-status');
 
-    // --- 1. 连接串口逻辑 ---
+    // 统一管理需要按连接状态切换的控制按钮
+    const controlButtons = [btnDisconnect, btnClear, btnProtoIO, btnProtoDual];
+
+    // --- 1. 封装的通用指令发送函数 ---
+    async function sendCommand(hexArray, successMessage) {
+        if (port && port.writable) {
+            try {
+                const writer = port.writable.getWriter();
+                const command = new Uint8Array(hexArray);
+                
+                await writer.write(command);
+                writer.releaseLock(); // 必须释放锁
+                
+                // 顶部状态栏提示，1.5秒后恢复
+                const oldText = statusEl.textContent;
+                statusEl.textContent = `⚡ ${successMessage}`;
+                setTimeout(() => { 
+                    if (keepReading) statusEl.textContent = oldText; 
+                }, 1500);
+
+            } catch (err) {
+                console.error('下发指令失败:', err);
+                alert('发送失败，请检查串口连接');
+            }
+        }
+    }
+
+    // --- 2. 绑定各个指令按钮的点击事件 ---
+    btnClear.addEventListener('click', () => {
+        sendCommand([0x81, 0x01, 0x7F], '清空指令已发送');
+    });
+
+    btnProtoIO.addEventListener('click', () => {
+        sendCommand([0x81, 0x03, 0x7F], '已切换至 IO 协议');
+    });
+
+    btnProtoDual.addEventListener('click', () => {
+        sendCommand([0x81, 0x02, 0x7F], '已切换至双串口协议');
+    });
+
+    // --- 3. 连接与断开逻辑 ---
     btnConnect.addEventListener('click', async () => {
         if (!('serial' in navigator)) {
             alert('当前浏览器不支持 Web Serial API。');
             return;
         }
-        
         try {
             port = await navigator.serial.requestPort();
             await port.open({ baudRate: 9600 }); 
@@ -120,49 +167,17 @@
             statusEl.textContent = '🟢 串口已连接，双向通信已就绪';
             statusEl.className = 'status connected';
             
-            // 按钮状态切换
             btnConnect.disabled = true;
-            btnDisconnect.disabled = false;
-            btnClear.disabled = false; // 连上后，允许点击清空按钮
+            controlButtons.forEach(btn => btn.disabled = false);
 
             keepReading = true;
             readLoop();
         } catch (err) {
             console.error('连接失败:', err);
-            statusEl.textContent = '🔴 连接失败，请检查端口是否被占用';
+            statusEl.textContent = '🔴 连接取消或失败';
         }
     });
 
-    // --- 2. 下发数据逻辑 (新增: 发送 0x81 0x01 0x7F) ---
-    btnClear.addEventListener('click', async () => {
-        // 检查串口对象是否存在且可写
-        if (port && port.writable) {
-            try {
-                // 获取发送写入流的锁
-                const writer = port.writable.getWriter();
-                // 构造要发送的指令字节
-                const command = new Uint8Array([0x81, 0x01, 0x7F]);
-                
-                // 将指令写入串口
-                await writer.write(command);
-                // 用完必须释放锁，否则下次发不出，也可能影响读取
-                writer.releaseLock();
-                
-                // 简单给个状态提示
-                const oldText = statusEl.textContent;
-                statusEl.textContent = '⚡ 清空指令已发送！';
-                setTimeout(() => { 
-                    if (keepReading) statusEl.textContent = oldText; 
-                }, 1500);
-
-            } catch (err) {
-                console.error('下发指令失败:', err);
-                alert('发送失败，请检查串口状态');
-            }
-        }
-    });
-
-    // --- 3. 断开连接逻辑 ---
     btnDisconnect.addEventListener('click', async () => {
         keepReading = false;
         if (reader) {
@@ -170,7 +185,7 @@
         }
     });
 
-    // --- 4. 循环读取与解析逻辑 (保持不变) ---
+    // --- 4. 核心读取与解析循环 ---
     async function readLoop() {
         while (port.readable && keepReading) {
             reader = port.readable.getReader();
@@ -201,10 +216,8 @@
         statusEl.textContent = '⚪ 已断开连接';
         statusEl.className = 'status';
         
-        // 恢复按钮初始状态
         btnConnect.disabled = false;
-        btnDisconnect.disabled = true;
-        btnClear.disabled = true; 
+        controlButtons.forEach(btn => btn.disabled = true);
         
         receiveBuffer = new Uint8Array(0);
         resetUI();
