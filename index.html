@@ -3,41 +3,42 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>雷达底层信号监控 (控制增强版)</title>
+    <title>雷达底层信号监控 (协议自适应版)</title>
     <style>
         body { font-family: -apple-system, system-ui, "Segoe UI", Roboto, sans-serif; background: #f0f2f5; margin: 0; padding: 20px; color: #333; }
-        .container { max-width: 900px; margin: 0 auto; }
+        .container { max-width: 1000px; margin: 0 auto; }
         h2 { text-align: center; color: #2c3e50; margin-bottom: 20px; }
         
         .controls { display: flex; justify-content: center; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
         button { border: none; padding: 10px 18px; font-size: 15px; border-radius: 8px; cursor: pointer; transition: all 0.2s; color: white; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         button:disabled { background-color: #bdc3c7 !important; cursor: not-allowed; transform: none !important; box-shadow: none; color: #ecf0f1; }
         
-        /* 基础操作按钮 */
         #btn-connect { background-color: #27ae60; }
         #btn-connect:hover:not(:disabled) { background-color: #2ecc71; transform: translateY(-1px); }
         #btn-disconnect { background-color: #c0392b; }
         #btn-disconnect:hover:not(:disabled) { background-color: #e74c3c; transform: translateY(-1px); }
-        
-        /* 清除按钮 */
         #btn-clear { background-color: #e67e22; }
         #btn-clear:hover:not(:disabled) { background-color: #f39c12; transform: translateY(-1px); }
         
-        /* 协议切换按钮 (紫色系) */
         .btn-proto { background-color: #8e44ad; }
         .btn-proto:hover:not(:disabled) { background-color: #9b59b6; transform: translateY(-1px); }
         
-        .status { text-align: center; margin-bottom: 30px; font-weight: bold; color: #7f8c8d; font-size: 14px; padding: 10px; border-radius: 6px; background: white; border: 1px solid #ddd; }
+        .status-container { display: flex; justify-content: center; gap: 15px; margin-bottom: 30px; }
+        .status { font-weight: bold; color: #7f8c8d; font-size: 14px; padding: 10px 20px; border-radius: 6px; background: white; border: 1px solid #ddd; }
         .status.connected { color: #27ae60; border-color: #27ae60; background: #eafaf1; }
+        #protocol-indicator { color: #8e44ad; border-color: #e8daef; background: #f4ecf8; }
         
-        .dashboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; }
+        .dashboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 15px; }
         .card { background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); text-align: center; border: 1px solid #eee; }
         .card-title { font-size: 13px; color: #7f8c8d; margin-bottom: 8px; font-weight: bold; }
         .card-value { font-size: 32px; color: #007aff; font-weight: bold; font-family: "SF Mono", Consolas, monospace; }
         .card-desc { font-size: 11px; color: #a4b0be; margin-top: 8px; }
         
+        /* 特殊卡片样式 */
         .card.highlight { border-color: #007aff; border-width: 2px; }
         .card.total { background-color: #f8f9fa; }
+        .card.dual-only { border-color: #9b59b6; background-color: #faf6fc; }
+        .card.dual-only .card-value { color: #8e44ad; }
     </style>
 </head>
 <body>
@@ -53,7 +54,10 @@
         <button id="btn-proto-dual" class="btn-proto" disabled>🔄 切换双串口协议</button>
     </div>
     
-    <div id="connection-status" class="status">等待连接...</div>
+    <div class="status-container">
+        <div id="connection-status" class="status">等待连接...</div>
+        <div id="protocol-indicator" class="status">未知协议帧</div>
+    </div>
 
     <div class="dashboard">
         <div class="card">
@@ -96,6 +100,27 @@
             <div class="card-value" style="color: #2c3e50;" id="val_total">0</div>
             <div class="card-desc">g_radar_total_pulse_count</div>
         </div>
+
+        <div class="card dual-only">
+            <div class="card-title">微动信号</div>
+            <div class="card-value" id="val_micro">-</div>
+            <div class="card-desc">g_radar_uart_micro_move</div>
+        </div>
+        <div class="card dual-only">
+            <div class="card-title">手势判定</div>
+            <div class="card-value" id="val_gesture">-</div>
+            <div class="card-desc">g_radar_uart_gesture</div>
+        </div>
+        <div class="card dual-only">
+            <div class="card-title">着坐判定</div>
+            <div class="card-value" id="val_sit">-</div>
+            <div class="card-desc">g_radar_uart_sit</div>
+        </div>
+        <div class="card dual-only">
+            <div class="card-title">小便判定</div>
+            <div class="card-value" id="val_urine">-</div>
+            <div class="card-desc">g_radar_uart_urine</div>
+        </div>
     </div>
 </div>
 
@@ -104,69 +129,50 @@
     let reader;
     let keepReading = false;
     let receiveBuffer = new Uint8Array(0);
-    const FRAME_LENGTH = 18; 
 
-    // 获取按钮元素
     const btnConnect = document.getElementById('btn-connect');
     const btnDisconnect = document.getElementById('btn-disconnect');
     const btnClear = document.getElementById('btn-clear');
     const btnProtoIO = document.getElementById('btn-proto-io');
     const btnProtoDual = document.getElementById('btn-proto-dual');
+    
     const statusEl = document.getElementById('connection-status');
-
-    // 统一管理需要按连接状态切换的控制按钮
+    const protoIndicator = document.getElementById('protocol-indicator');
     const controlButtons = [btnDisconnect, btnClear, btnProtoIO, btnProtoDual];
 
-    // --- 1. 封装的通用指令发送函数 ---
+    // 发送串口指令通用函数
     async function sendCommand(hexArray, successMessage) {
         if (port && port.writable) {
             try {
                 const writer = port.writable.getWriter();
-                const command = new Uint8Array(hexArray);
+                await writer.write(new Uint8Array(hexArray));
+                writer.releaseLock();
                 
-                await writer.write(command);
-                writer.releaseLock(); // 必须释放锁
-                
-                // 顶部状态栏提示，1.5秒后恢复
                 const oldText = statusEl.textContent;
                 statusEl.textContent = `⚡ ${successMessage}`;
                 setTimeout(() => { 
                     if (keepReading) statusEl.textContent = oldText; 
                 }, 1500);
-
             } catch (err) {
-                console.error('下发指令失败:', err);
-                alert('发送失败，请检查串口连接');
+                console.error('指令发送失败:', err);
             }
         }
     }
 
-    // --- 2. 绑定各个指令按钮的点击事件 ---
-    btnClear.addEventListener('click', () => {
-        sendCommand([0x81, 0x01, 0x7F], '清空指令已发送');
-    });
+    // 绑定下发指令
+    btnClear.addEventListener('click', () => sendCommand([0x81, 0x01, 0x7F], '清空指令已发送'));
+    btnProtoIO.addEventListener('click', () => sendCommand([0x81, 0x03, 0x7F], '已下发: 切换IO协议'));
+    btnProtoDual.addEventListener('click', () => sendCommand([0x81, 0x02, 0x7F], '已下发: 切换双串口协议'));
 
-    btnProtoIO.addEventListener('click', () => {
-        sendCommand([0x81, 0x03, 0x7F], '已切换至 IO 协议');
-    });
-
-    btnProtoDual.addEventListener('click', () => {
-        sendCommand([0x81, 0x02, 0x7F], '已切换至双串口协议');
-    });
-
-    // --- 3. 连接与断开逻辑 ---
+    // 连接逻辑
     btnConnect.addEventListener('click', async () => {
-        if (!('serial' in navigator)) {
-            alert('当前浏览器不支持 Web Serial API。');
-            return;
-        }
+        if (!('serial' in navigator)) return alert('不支持 Web Serial API');
         try {
             port = await navigator.serial.requestPort();
             await port.open({ baudRate: 9600 }); 
             
-            statusEl.textContent = '🟢 串口已连接，双向通信已就绪';
+            statusEl.textContent = '🟢 串口已连接';
             statusEl.className = 'status connected';
-            
             btnConnect.disabled = true;
             controlButtons.forEach(btn => btn.disabled = false);
 
@@ -174,18 +180,16 @@
             readLoop();
         } catch (err) {
             console.error('连接失败:', err);
-            statusEl.textContent = '🔴 连接取消或失败';
+            statusEl.textContent = '🔴 连接失败';
         }
     });
 
     btnDisconnect.addEventListener('click', async () => {
         keepReading = false;
-        if (reader) {
-            await reader.cancel(); 
-        }
+        if (reader) await reader.cancel(); 
     });
 
-    // --- 4. 核心读取与解析循环 ---
+    // 读取循环
     async function readLoop() {
         while (port.readable && keepReading) {
             reader = port.readable.getReader();
@@ -194,35 +198,29 @@
                     const { value, done } = await reader.read();
                     if (done) break;
                     if (value) {
-                        let tempBuffer = new Uint8Array(receiveBuffer.length + value.length);
-                        tempBuffer.set(receiveBuffer);
-                        tempBuffer.set(value, receiveBuffer.length);
-                        receiveBuffer = tempBuffer;
+                        let temp = new Uint8Array(receiveBuffer.length + value.length);
+                        temp.set(receiveBuffer);
+                        temp.set(value, receiveBuffer.length);
+                        receiveBuffer = temp;
                         processBuffer();
                     }
                 }
-            } catch (error) {
-                console.error('读取流出错:', error);
-            } finally {
-                reader.releaseLock();
-            }
+            } catch (error) { console.error('读取流出错:', error); } 
+            finally { reader.releaseLock(); }
         }
 
-        if (port) {
-            await port.close();
-            port = null;
-        }
+        if (port) { await port.close(); port = null; }
 
-        statusEl.textContent = '⚪ 已断开连接';
+        statusEl.textContent = '⚪ 已断开';
         statusEl.className = 'status';
-        
+        protoIndicator.textContent = '未知协议帧';
         btnConnect.disabled = false;
         controlButtons.forEach(btn => btn.disabled = true);
-        
         receiveBuffer = new Uint8Array(0);
         resetUI();
     }
 
+    // 🌟 智能帧长度解析引擎
     function processBuffer() {
         while (true) {
             let headerIndex = receiveBuffer.indexOf(0x80);
@@ -233,22 +231,36 @@
             if (headerIndex > 0) {
                 receiveBuffer = receiveBuffer.slice(headerIndex);
             }
-            if (receiveBuffer.length < FRAME_LENGTH) break;
             
-            if (receiveBuffer[FRAME_LENGTH - 1] === 0x7E) {
-                const payload = receiveBuffer.slice(1, FRAME_LENGTH - 1);
-                parsePayload(payload);
-                receiveBuffer = receiveBuffer.slice(FRAME_LENGTH);
-            } else {
+            // 数据太短，连最短的 18 字节协议都不够
+            if (receiveBuffer.length < 18) break;
+
+            // 规则1：探测是否为 26 字节的双串口协议
+            if (receiveBuffer.length >= 26 && receiveBuffer[25] === 0x7E) {
+                parsePayload(receiveBuffer.slice(1, 25), 'DUAL');
+                receiveBuffer = receiveBuffer.slice(26);
+            } 
+            // 规则2：探测是否为 18 字节的 IO 协议
+            else if (receiveBuffer[17] === 0x7E) {
+                parsePayload(receiveBuffer.slice(1, 17), 'IO');
+                receiveBuffer = receiveBuffer.slice(18);
+            } 
+            // 规则3：垃圾数据处理 (超过最大帧长依然没找到合法的帧尾)
+            else if (receiveBuffer.length >= 26) {
                 receiveBuffer = receiveBuffer.slice(1);
+            } 
+            else {
+                // 在 18~25 字节之间等待更多数据补齐 26 字节
+                break; 
             }
         }
     }
 
-    // 大端模式解析
-    function parsePayload(payload) {
+    // 负载渲染解析 (大端模式)
+    function parsePayload(payload, mode) {
         const parseU16 = (index) => (payload[index] << 8) | payload[index + 1];
 
+        // 基础 8 数据 (共同拥有)
         document.getElementById('val_width').innerText = parseU16(0);
         document.getElementById('val_state').innerText = parseU16(2);
         document.getElementById('val_31ms').innerText = parseU16(4);
@@ -257,11 +269,30 @@
         document.getElementById('val_192ms').innerText = parseU16(10);
         document.getElementById('val_unknown').innerText = parseU16(12);
         document.getElementById('val_total').innerText = parseU16(14);
+
+        // 扩展 4 数据 (根据协议模式动态更新)
+        if (mode === 'DUAL') {
+            document.getElementById('val_micro').innerText = parseU16(16);
+            document.getElementById('val_gesture').innerText = parseU16(18);
+            document.getElementById('val_sit').innerText = parseU16(20);
+            document.getElementById('val_urine').innerText = parseU16(22);
+            protoIndicator.innerText = '⚡ 当前状态: 双串口协议 (26字节)';
+        } else {
+            // 如果是 IO 协议，把特有的数据位置设为 '-'
+            document.getElementById('val_micro').innerText = '-';
+            document.getElementById('val_gesture').innerText = '-';
+            document.getElementById('val_sit').innerText = '-';
+            document.getElementById('val_urine').innerText = '-';
+            protoIndicator.innerText = '⚡ 当前状态: IO 协议 (18字节)';
+        }
     }
 
+    // 重置所有面板数据
     function resetUI() {
         const ids = ['val_width', 'val_state', 'val_31ms', 'val_62ms', 'val_124ms', 'val_192ms', 'val_unknown', 'val_total'];
+        const extIds = ['val_micro', 'val_gesture', 'val_sit', 'val_urine'];
         ids.forEach(id => document.getElementById(id).innerText = '0');
+        extIds.forEach(id => document.getElementById(id).innerText = '-');
     }
 </script>
 </body>
