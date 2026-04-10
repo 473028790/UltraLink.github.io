@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>雷达底层信号监控 (协议自适应版)</title>
+    <title>雷达底层信号监控 (双协议自适应版)</title>
     <style>
         body { font-family: -apple-system, system-ui, "Segoe UI", Roboto, sans-serif; background: #f0f2f5; margin: 0; padding: 20px; color: #333; }
-        .container { max-width: 1000px; margin: 0 auto; }
+        .container { max-width: 1100px; margin: 0 auto; }
         h2 { text-align: center; color: #2c3e50; margin-bottom: 20px; }
         
         .controls { display: flex; justify-content: center; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
@@ -28,17 +28,23 @@
         .status.connected { color: #27ae60; border-color: #27ae60; background: #eafaf1; }
         #protocol-indicator { color: #8e44ad; border-color: #e8daef; background: #f4ecf8; }
         
-        .dashboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 15px; }
+        .section-title { font-size: 16px; color: #2c3e50; margin-bottom: 10px; padding-bottom: 5px; border-bottom: 2px solid #ddd; font-weight: bold; }
+        .dashboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 30px; }
         .card { background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); text-align: center; border: 1px solid #eee; }
         .card-title { font-size: 13px; color: #7f8c8d; margin-bottom: 8px; font-weight: bold; }
-        .card-value { font-size: 32px; color: #007aff; font-weight: bold; font-family: "SF Mono", Consolas, monospace; }
+        .card-value { font-size: 28px; color: #007aff; font-weight: bold; font-family: "SF Mono", Consolas, monospace; }
         .card-desc { font-size: 11px; color: #a4b0be; margin-top: 8px; }
         
-        /* 特殊卡片样式 */
-        .card.highlight { border-color: #007aff; border-width: 2px; }
-        .card.total { background-color: #f8f9fa; }
-        .card.dual-only { border-color: #9b59b6; background-color: #faf6fc; }
-        .card.dual-only .card-value { color: #8e44ad; }
+        /* IO 协议面板样式 */
+        .card.io-panel { border-left: 4px solid #3498db; }
+        .card.io-panel .card-value { color: #3498db; }
+        
+        /* 原始雷达协议面板样式 (紫色) */
+        .card.radar-panel { background-color: #faf6fc; border-left: 4px solid #9b59b6; }
+        .card.radar-panel .card-value { color: #8e44ad; font-size: 24px; }
+        
+        .tag-active { background: #8e44ad; color: white; padding: 4px 8px; border-radius: 4px; font-size: 16px; }
+        .tag-inactive { background: #e0e0e0; color: #7f8c8d; padding: 4px 8px; border-radius: 4px; font-size: 16px; }
     </style>
 </head>
 <body>
@@ -47,79 +53,93 @@
     <h2>📡 雷达底层信号实时监控</h2>
     
     <div class="controls">
-        <button id="btn-connect">🟢 连接串口</button>
+        <button id="btn-connect">🟢 连接串口 (9600)</button>
         <button id="btn-disconnect" disabled>🔴 断开</button>
         <button id="btn-clear" disabled>🧹 清空数据</button>
         <button id="btn-proto-io" class="btn-proto" disabled>🔄 切换 IO 协议</button>
-        <button id="btn-proto-dual" class="btn-proto" disabled>🔄 切换双串口协议</button>
+        <button id="btn-proto-dual" class="btn-proto" disabled>🔄 切换串口透传</button>
     </div>
     
     <div class="status-container">
         <div id="connection-status" class="status">等待连接...</div>
-        <div id="protocol-indicator" class="status">未知协议帧</div>
+        <div id="protocol-indicator" class="status">未知数据源</div>
     </div>
 
+    <div class="section-title">🟣 原始雷达透传状态 (5 Byte 协议)</div>
     <div class="dashboard">
-        <div class="card">
-            <div class="card-title">最近一次脉宽 (ms)</div>
+        <div class="card radar-panel">
+            <div class="card-title">目标状态</div>
+            <div class="card-value" id="val_rad_state">-</div>
+            <div class="card-desc">Byte 1 (00/01/02)</div>
+        </div>
+        <div class="card radar-panel">
+            <div class="card-title">当前档位</div>
+            <div class="card-value" id="val_rad_gear">-</div>
+            <div class="card-desc">Byte 2 (1~5)</div>
+        </div>
+        <div class="card radar-panel">
+            <div class="card-title">微动信号</div>
+            <div class="card-value" id="val_rad_micro">-</div>
+            <div class="card-desc">Byte 3 (Bit 0)</div>
+        </div>
+        <div class="card radar-panel">
+            <div class="card-title">手势判定</div>
+            <div class="card-value" id="val_rad_gesture">-</div>
+            <div class="card-desc">Byte 3 (Bit 1)</div>
+        </div>
+        <div class="card radar-panel">
+            <div class="card-title">着坐判定</div>
+            <div class="card-value" id="val_rad_sit">-</div>
+            <div class="card-desc">Byte 3 (Bit 2)</div>
+        </div>
+        <div class="card radar-panel">
+            <div class="card-title">小便判定</div>
+            <div class="card-value" id="val_rad_urine">-</div>
+            <div class="card-desc">Byte 3 (Bit 3)</div>
+        </div>
+    </div>
+
+    <div class="section-title">🔵 单片机底层脉冲解析 (18 Byte 协议)</div>
+    <div class="dashboard">
+        <div class="card io-panel">
+            <div class="card-title">最近脉宽 (ms)</div>
             <div class="card-value" id="val_width">0</div>
-            <div class="card-desc">g_radar_low_level_width_ms</div>
+            <div class="card-desc">low_level_width_ms</div>
         </div>
-        <div class="card highlight">
-            <div class="card-title">当前识别状态</div>
+        <div class="card io-panel">
+            <div class="card-title">底层识别状态</div>
             <div class="card-value" id="val_state">0</div>
-            <div class="card-desc">g_radar_signal_state</div>
+            <div class="card-desc">signal_state</div>
         </div>
-        <div class="card">
-            <div class="card-title">远距活动 (31ms)</div>
+        <div class="card io-panel">
+            <div class="card-title">远距 (31ms)</div>
             <div class="card-value" id="val_31ms">0</div>
-            <div class="card-desc">g_radar_signal_count[1]</div>
+            <div class="card-desc">count[1]</div>
         </div>
-        <div class="card">
-            <div class="card-title">靠近信号 (62ms)</div>
+        <div class="card io-panel">
+            <div class="card-title">靠近 (62ms)</div>
             <div class="card-value" id="val_62ms">0</div>
-            <div class="card-desc">g_radar_signal_count[2]</div>
+            <div class="card-desc">count[2]</div>
         </div>
-        <div class="card">
-            <div class="card-title">存在信号 (124ms)</div>
+        <div class="card io-panel">
+            <div class="card-title">存在 (124ms)</div>
             <div class="card-value" id="val_124ms">0</div>
-            <div class="card-desc">g_radar_signal_count[3]</div>
+            <div class="card-desc">count[3]</div>
         </div>
-        <div class="card">
-            <div class="card-title">远离信号 (192ms)</div>
+        <div class="card io-panel">
+            <div class="card-title">远离 (192ms)</div>
             <div class="card-value" id="val_192ms">0</div>
-            <div class="card-desc">g_radar_signal_count[4]</div>
+            <div class="card-desc">count[4]</div>
         </div>
-        <div class="card">
+        <div class="card io-panel">
             <div class="card-title">未知脉冲</div>
             <div class="card-value" id="val_unknown">0</div>
-            <div class="card-desc">g_radar_unknown_count</div>
+            <div class="card-desc">unknown_count</div>
         </div>
-        <div class="card total">
+        <div class="card io-panel" style="background-color: #ecf0f1;">
             <div class="card-title">总脉冲次数</div>
-            <div class="card-value" style="color: #2c3e50;" id="val_total">0</div>
-            <div class="card-desc">g_radar_total_pulse_count</div>
-        </div>
-
-        <div class="card dual-only">
-            <div class="card-title">微动信号</div>
-            <div class="card-value" id="val_micro">-</div>
-            <div class="card-desc">g_radar_uart_micro_move</div>
-        </div>
-        <div class="card dual-only">
-            <div class="card-title">手势判定</div>
-            <div class="card-value" id="val_gesture">-</div>
-            <div class="card-desc">g_radar_uart_gesture</div>
-        </div>
-        <div class="card dual-only">
-            <div class="card-title">着坐判定</div>
-            <div class="card-value" id="val_sit">-</div>
-            <div class="card-desc">g_radar_uart_sit</div>
-        </div>
-        <div class="card dual-only">
-            <div class="card-title">小便判定</div>
-            <div class="card-value" id="val_urine">-</div>
-            <div class="card-desc">g_radar_uart_urine</div>
+            <div class="card-value" id="val_total">0</div>
+            <div class="card-desc">total_pulse_count</div>
         </div>
     </div>
 </div>
@@ -140,7 +160,7 @@
     const protoIndicator = document.getElementById('protocol-indicator');
     const controlButtons = [btnDisconnect, btnClear, btnProtoIO, btnProtoDual];
 
-    // 发送串口指令通用函数
+    // 发送串口指令
     async function sendCommand(hexArray, successMessage) {
         if (port && port.writable) {
             try {
@@ -150,21 +170,17 @@
                 
                 const oldText = statusEl.textContent;
                 statusEl.textContent = `⚡ ${successMessage}`;
-                setTimeout(() => { 
-                    if (keepReading) statusEl.textContent = oldText; 
-                }, 1500);
-            } catch (err) {
-                console.error('指令发送失败:', err);
-            }
+                setTimeout(() => { if (keepReading) statusEl.textContent = oldText; }, 1500);
+            } catch (err) { console.error('指令发送失败:', err); }
         }
     }
 
     // 绑定下发指令
-    btnClear.addEventListener('click', () => sendCommand([0x81, 0x01, 0x7F], '清空指令已发送'));
-    btnProtoIO.addEventListener('click', () => sendCommand([0x81, 0x03, 0x7F], '已下发: 切换IO协议'));
-    btnProtoDual.addEventListener('click', () => sendCommand([0x81, 0x02, 0x7F], '已下发: 切换双串口协议'));
+    btnClear.addEventListener('click', () => sendCommand([0x81, 0x01, 0x7F], '已下发: 清空数据'));
+    btnProtoIO.addEventListener('click', () => sendCommand([0x81, 0x03, 0x7F], '已下发: 切换 IO 协议'));
+    btnProtoDual.addEventListener('click', () => sendCommand([0x81, 0x02, 0x7F], '已下发: 开启串口透传'));
 
-    // 连接逻辑
+    // 连接与断开
     btnConnect.addEventListener('click', async () => {
         if (!('serial' in navigator)) return alert('不支持 Web Serial API');
         try {
@@ -178,10 +194,7 @@
 
             keepReading = true;
             readLoop();
-        } catch (err) {
-            console.error('连接失败:', err);
-            statusEl.textContent = '🔴 连接失败';
-        }
+        } catch (err) { statusEl.textContent = '🔴 连接失败'; }
     });
 
     btnDisconnect.addEventListener('click', async () => {
@@ -189,7 +202,7 @@
         if (reader) await reader.cancel(); 
     });
 
-    // 读取循环
+    // 读取数据循环
     async function readLoop() {
         while (port.readable && keepReading) {
             reader = port.readable.getReader();
@@ -210,57 +223,74 @@
         }
 
         if (port) { await port.close(); port = null; }
-
-        statusEl.textContent = '⚪ 已断开';
-        statusEl.className = 'status';
-        protoIndicator.textContent = '未知协议帧';
-        btnConnect.disabled = false;
-        controlButtons.forEach(btn => btn.disabled = true);
-        receiveBuffer = new Uint8Array(0);
         resetUI();
     }
 
-    // 🌟 智能帧长度解析引擎
+    // 🌟 双核智能数据流探测引擎
     function processBuffer() {
-        while (true) {
-            let headerIndex = receiveBuffer.indexOf(0x80);
-            if (headerIndex === -1) {
-                receiveBuffer = new Uint8Array(0);
-                break;
-            }
-            if (headerIndex > 0) {
-                receiveBuffer = receiveBuffer.slice(headerIndex);
-            }
-            
-            // 数据太短，连最短的 18 字节协议都不够
-            if (receiveBuffer.length < 18) break;
-
-            // 规则1：探测是否为 26 字节的双串口协议
-            if (receiveBuffer.length >= 26 && receiveBuffer[25] === 0x7E) {
-                parsePayload(receiveBuffer.slice(1, 25), 'DUAL');
-                receiveBuffer = receiveBuffer.slice(26);
+        while (receiveBuffer.length > 0) {
+            // ================= 规则 A: 寻找单片机 18字节 IO 协议 =================
+            if (receiveBuffer[0] === 0x80) {
+                if (receiveBuffer.length >= 18) {
+                    if (receiveBuffer[17] === 0x7E) {
+                        // 找到完整有效帧
+                        parseIOPayload(receiveBuffer.slice(1, 17));
+                        receiveBuffer = receiveBuffer.slice(18);
+                        continue;
+                    } else {
+                        // 假帧头，丢弃 0x80
+                        receiveBuffer = receiveBuffer.slice(1);
+                        continue;
+                    }
+                } else {
+                    break; // 数据不够 18 字节，等待
+                }
             } 
-            // 规则2：探测是否为 18 字节的 IO 协议
-            else if (receiveBuffer[17] === 0x7E) {
-                parsePayload(receiveBuffer.slice(1, 17), 'IO');
-                receiveBuffer = receiveBuffer.slice(18);
+            // ================= 规则 B: 寻找 5字节 原始雷达协议 =================
+            else if (receiveBuffer[0] === 0x55) {
+                if (receiveBuffer.length >= 5) {
+                    // 校验: 前4个字节相加的低8位
+                    let checksum = (receiveBuffer[0] + receiveBuffer[1] + receiveBuffer[2] + receiveBuffer[3]) & 0xFF;
+                    if (receiveBuffer[4] === checksum) {
+                        // 找到完整雷达帧
+                        parseRawRadarPayload(receiveBuffer.slice(1, 4));
+                        receiveBuffer = receiveBuffer.slice(5);
+                        continue;
+                    } else {
+                        // 校验失败，假帧头
+                        receiveBuffer = receiveBuffer.slice(1);
+                        continue;
+                    }
+                } else {
+                    break; // 数据不够 5 字节，等待
+                }
             } 
-            // 规则3：垃圾数据处理 (超过最大帧长依然没找到合法的帧尾)
-            else if (receiveBuffer.length >= 26) {
-                receiveBuffer = receiveBuffer.slice(1);
-            } 
+            // ================= 垃圾数据清理 =================
             else {
-                // 在 18~25 字节之间等待更多数据补齐 26 字节
-                break; 
+                // 如果当前字节既不是 0x80 也不是 0x55，说明是干扰数据
+                // 快速跳到下一个可能的帧头，防止缓冲区拥堵
+                let next80 = receiveBuffer.indexOf(0x80);
+                let next55 = receiveBuffer.indexOf(0x55);
+                
+                let nextHeader = -1;
+                if (next80 !== -1 && next55 !== -1) nextHeader = Math.min(next80, next55);
+                else if (next80 !== -1) nextHeader = next80;
+                else if (next55 !== -1) nextHeader = next55;
+
+                if (nextHeader > 0) {
+                    receiveBuffer = receiveBuffer.slice(nextHeader);
+                } else {
+                    receiveBuffer = new Uint8Array(0); // 全是垃圾，清空
+                    break;
+                }
             }
         }
     }
 
-    // 负载渲染解析 (大端模式)
-    function parsePayload(payload, mode) {
+    // 解析：单片机 18 字节 IO 协议 (大端)
+    function parseIOPayload(payload) {
         const parseU16 = (index) => (payload[index] << 8) | payload[index + 1];
 
-        // 基础 8 数据 (共同拥有)
         document.getElementById('val_width').innerText = parseU16(0);
         document.getElementById('val_state').innerText = parseU16(2);
         document.getElementById('val_31ms').innerText = parseU16(4);
@@ -270,29 +300,52 @@
         document.getElementById('val_unknown').innerText = parseU16(12);
         document.getElementById('val_total').innerText = parseU16(14);
 
-        // 扩展 4 数据 (根据协议模式动态更新)
-        if (mode === 'DUAL') {
-            document.getElementById('val_micro').innerText = parseU16(16);
-            document.getElementById('val_gesture').innerText = parseU16(18);
-            document.getElementById('val_sit').innerText = parseU16(20);
-            document.getElementById('val_urine').innerText = parseU16(22);
-            protoIndicator.innerText = '⚡ 当前状态: 双串口协议 (26字节)';
-        } else {
-            // 如果是 IO 协议，把特有的数据位置设为 '-'
-            document.getElementById('val_micro').innerText = '-';
-            document.getElementById('val_gesture').innerText = '-';
-            document.getElementById('val_sit').innerText = '-';
-            document.getElementById('val_urine').innerText = '-';
-            protoIndicator.innerText = '⚡ 当前状态: IO 协议 (18字节)';
-        }
+        protoIndicator.innerText = '⚡ 正在接收: 单片机 IO 协议 (18 Byte)';
+        protoIndicator.style.color = '#3498db';
+        protoIndicator.style.backgroundColor = '#eaf5fc';
     }
 
-    // 重置所有面板数据
+    // 解析：原始 5 字节 雷达协议
+    function parseRawRadarPayload(payload) {
+        // Payload 对应: [状态, 档位, 功能位掩码]
+        
+        // 1. 解析目标状态 (Byte 1)
+        let stateText = "无物体";
+        if (payload[0] === 0x01) stateText = "🎯 靠近";
+        else if (payload[0] === 0x02) stateText = "🚶 远离";
+        document.getElementById('val_rad_state').innerText = stateText;
+
+        // 2. 解析档位 (Byte 2)
+        document.getElementById('val_rad_gear').innerText = payload[1] + " 档";
+
+        // 3. 解析功能位 (Byte 3) 使用位操作掩码
+        let actionByte = payload[2];
+        const getHtml = (isTrue) => isTrue ? '<span class="tag-active">有</span>' : '<span class="tag-inactive">无</span>';
+
+        document.getElementById('val_rad_micro').innerHTML = getHtml(actionByte & 0x01); // Bit 0
+        document.getElementById('val_rad_gesture').innerHTML = getHtml(actionByte & 0x02); // Bit 1
+        document.getElementById('val_rad_sit').innerHTML = getHtml(actionByte & 0x04); // Bit 2
+        document.getElementById('val_rad_urine').innerHTML = getHtml(actionByte & 0x08); // Bit 3
+
+        protoIndicator.innerText = '⚡ 正在接收: 雷达原始透传 (5 Byte)';
+        protoIndicator.style.color = '#8e44ad';
+        protoIndicator.style.backgroundColor = '#f4ecf8';
+    }
+
+    // 断开连接后恢复初始UI
     function resetUI() {
-        const ids = ['val_width', 'val_state', 'val_31ms', 'val_62ms', 'val_124ms', 'val_192ms', 'val_unknown', 'val_total'];
-        const extIds = ['val_micro', 'val_gesture', 'val_sit', 'val_urine'];
-        ids.forEach(id => document.getElementById(id).innerText = '0');
-        extIds.forEach(id => document.getElementById(id).innerText = '-');
+        statusEl.textContent = '⚪ 已断开';
+        statusEl.className = 'status';
+        protoIndicator.textContent = '未知数据源';
+        btnConnect.disabled = false;
+        controlButtons.forEach(btn => btn.disabled = true);
+        receiveBuffer = new Uint8Array(0);
+
+        const ioIds = ['val_width', 'val_state', 'val_31ms', 'val_62ms', 'val_124ms', 'val_192ms', 'val_unknown', 'val_total'];
+        ioIds.forEach(id => document.getElementById(id).innerText = '0');
+        
+        const radIds = ['val_rad_state', 'val_rad_gear', 'val_rad_micro', 'val_rad_gesture', 'val_rad_sit', 'val_rad_urine'];
+        radIds.forEach(id => document.getElementById(id).innerHTML = '-');
     }
 </script>
 </body>
